@@ -19,4 +19,12 @@ return [
     // Giriş denemesi sınırı (15 dakikada)
     'login_max_per_user' => 5,
     'login_max_per_ip'   => 30,
+    // "Bizimle mi?" sütunu seçenekleri: anahtar => [etiket, renk(success|warning|danger|muted)].
+    // Anahtarlar DB'ye yazılır; bir anahtarı silerseniz o değerdeki kayıtlar "Belirsiz" görünür.
+    'stance_options' => [
+        'bizimle'  => ['Bizimle', 'success'],
+        'kararsiz' => ['Kararsız', 'warning'],
+        'karsi'    => ['Karşı', 'danger'],
+        'bilinmiyor' => ['Bilinmiyor', 'muted'],
+    ],
 ];

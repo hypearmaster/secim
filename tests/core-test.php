@@ -81,5 +81,19 @@ check('durum filtresi', count(array_filter($came, fn($p) => !$p['attended'])) ==
 $noGroup = search_people($yon, ['group' => NONE_VALUE], 200)['items'];
 check('grupsuz filtresi', count($noGroup) > 0 && count(array_filter($noGroup, fn($p) => $p['group_name'] !== null)) === 0);
 
+// "Bizimle mi?"
+$s1 = set_stance($onay, $merkezId, 'bizimle');
+check('onayci stance değiştiremez', !$s1['ok'] && $s1['status'] === 403);
+check('onayciye stance gönderilmez', search_people($onay, [])['items'][0]['stance'] === null);
+$s2 = set_stance($yon, $merkezId, 'bizimle');
+check('yönetici stance ayarlar', $s2['ok'] && $s2['person']['stance']['value'] === 'bizimle');
+$s3 = set_stance($yon, $merkezId, 'olmayan');
+check('geçersiz stance 422', $s3['status'] === 422);
+$ids = array_column(search_people($yon, ['stance' => 'bizimle'], 200)['items'], 'id');
+check('stance filtresi', in_array($merkezId, $ids, true) && count($ids) >= 1);
+$s4 = set_stance($yon, $merkezId, null);
+check('stance temizlenir', $s4['ok'] && $s4['person']['stance']['value'] === null);
+check('names_only doğum tarihi/yerini atar', names_only('MEHMET GENÇ-06.01.1980-ÖMERLİ,ORHAN DOĞAN-10.02.1963-ŞİRAN') === 'MEHMET GENÇ, ORHAN DOĞAN');
+
 echo $fail ? "\n$fail test BAŞARISIZ\n" : "\nTüm testler geçti\n";
 exit($fail ? 1 : 0);

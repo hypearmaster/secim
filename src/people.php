@@ -114,13 +114,14 @@ function insert_person(int $eventId, ?int $batchId, array $data): int
     $refNo = clean_text($data['ref_no'] ?? null, 64);
     $extra = !empty($data['extra']) ? json_encode($data['extra'], JSON_UNESCAPED_UNICODE) : null;
     q(
-        'INSERT INTO people (event_id, batch_id, ref_no, full_name, authority, region, group_name, extra, search_key, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+        'INSERT INTO people (event_id, batch_id, ref_no, full_name, authority, region, group_name, stance, extra, search_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
         [
             $eventId, $batchId, $refNo, $fullName,
-            clean_text($data['authority'] ?? null, 120),
+            clean_text($data['authority'] ?? null, 255),
             clean_text($data['region'] ?? null, 120),
             clean_text($data['group_name'] ?? null, 120),
+            stance_from_text($data['stance'] ?? null),
             $extra,
             search_key($fullName, $refNo),
         ]
@@ -130,7 +131,7 @@ function insert_person(int $eventId, ?int $batchId, array $data): int
 
 /* ---------- Okuma ---------- */
 
-const PERSON_SELECT = 'SELECT p.id, p.event_id, p.ref_no, p.full_name, p.authority, p.region, p.group_name,
+const PERSON_SELECT = 'SELECT p.id, p.event_id, p.ref_no, p.full_name, p.authority, p.region, p.group_name, p.stance,
         p.attended_at, p.attended_by, u.full_name AS attended_by_name
     FROM people p LEFT JOIN users u ON u.id = p.attended_by';
 
@@ -160,6 +161,8 @@ function person_view(array $row, array $user): array
         'attended_by_name' => $row['attended_by_name'],
         'mine'             => $mine,
         'can_unmark'       => $canUnmark,
+        // stance yetkisi olmayana hiç gönderilmez (null)
+        'stance'           => can('stance', $user) ? stance_view($row['stance']) : null,
     ];
 }
 
@@ -198,6 +201,14 @@ function search_people(array $user, array $f, int $limit = 50, int $offset = 0):
     }
     $where .= facet_condition('region', $f['region'] ?? '', $params);
     $where .= facet_condition('group_name', $f['group'] ?? '', $params);
+    if (can('stance', $user) && is_string($f['stance'] ?? null) && $f['stance'] !== '') {
+        if ($f['stance'] === NONE_VALUE) {
+            $where .= ' AND p.stance IS NULL';
+        } elseif (isset(stance_options()[$f['stance']])) {
+            $where .= ' AND p.stance = ?';
+            $params[] = $f['stance'];
+        }
+    }
     $status = $f['status'] ?? 'all';
     if ($status === 'came') {
         $where .= ' AND p.attended_at IS NOT NULL';
@@ -244,6 +255,99 @@ function people_breakdown(array $user, string $column, ?int $eventId = null): ar
         'total' => (int) $r['total'],
         'came'  => (int) $r['came'],
     ], $rows);
+}
+
+/* ---------- "Bizimle mi?" ---------- */
+
+/** @return array<string, array{0:string,1:string}> anahtar => [etiket, renk] */
+function stance_options(): array
+{
+    return (array) config('stance_options', []);
+}
+
+/** @return array{value:?string,label:string,color:string} */
+function stance_view(?string $value): array
+{
+    $opt = $value !== null ? (stance_options()[$value] ?? null) : null;
+    return $opt
+        ? ['value' => $value, 'label' => $opt[0], 'color' => $opt[1]]
+        : ['value' => null, 'label' => 'Belirsiz', 'color' => 'muted'];
+}
+
+/** Excel'deki serbest metni ("Bizimle", "bizimle", "KARŞI") seçenek anahtarına çevirir; eşleşmezse null. */
+function stance_from_text(mixed $text): ?string
+{
+    $k = search_key(clean_text($text, 64));
+    if ($k === '') {
+        return null;
+    }
+    foreach (stance_options() as $key => [$label]) {
+        if ($k === search_key($key) || $k === search_key($label)) {
+            return $key;
+        }
+    }
+    return null;
+}
+
+/**
+ * @param ?string $value seçenek anahtarı ya da null (temizle)
+ * @return array{ok:bool, status:int, error?:string, person?:array}
+ */
+function set_stance(array $user, int $personId, ?string $value): array
+{
+    if (!can('stance', $user)) {
+        return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
+    }
+    if ($value !== null && !isset(stance_options()[$value])) {
+        return ['ok' => false, 'status' => 422, 'error' => 'Geçersiz seçenek.'];
+    }
+    $event = active_event();
+    if ($event === null) {
+        return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
+    }
+    [$scope, $params] = people_scope($user);
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $st = q("UPDATE people p SET p.stance = ? WHERE p.id = ? AND $scope", [$value, $personId, ...$params]);
+        if ($st->rowCount() === 0 && find_person($user, $personId) === null) {
+            $pdo->rollBack();
+            return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
+        }
+        if ($st->rowCount() === 1) {
+            q(
+                'INSERT INTO attendance_log (event_id, person_id, user_id, action, note, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+                [$event['id'], $personId, $user['id'], 'stance', $value, client_ip_bin()]
+            );
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return ['ok' => true, 'status' => 200, 'person' => person_view(find_person($user, $personId), $user)];
+}
+
+/* ---------- Excel yardımcıları ---------- */
+
+/**
+ * "MEHMET GENÇ-06.01.1980-ÖMERLİ,ORHAN DOĞAN-10.02.1963-ŞİRAN" -> "MEHMET GENÇ, ORHAN DOĞAN"
+ * Oda kayıtlarındaki doğum tarihi/yeri gibi kişisel ayrıntıları atar, sadece isimleri bırakır.
+ */
+function names_only(mixed $text): ?string
+{
+    $s = clean_text($text, 2000);
+    if ($s === null || strtoupper($s) === 'NULL') {
+        return null;
+    }
+    $names = [];
+    foreach (preg_split('/\s*[,;]\s*/u', $s) as $part) {
+        $name = trim(preg_split('/\s*-\s*\d/u', $part)[0] ?? '');
+        if ($name !== '' && !in_array($name, $names, true)) {
+            $names[] = $name;
+        }
+    }
+    return $names ? mb_substr(implode(', ', $names), 0, 255, 'UTF-8') : null;
 }
 
 /* ---------- İşaretleme ---------- */

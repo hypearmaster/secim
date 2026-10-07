@@ -3,6 +3,16 @@
 Excel'den yüklenen kişi listesinde, onay ekibinin telefondan "GELDİ" işaretlediği küçük bir
 sistem. Framework yok: **PHP 8.2 + PDO MySQL (MariaDB 10.4) + PhpSpreadsheet**. Vanilla JS.
 
+## Gerçek veri (2026-10-07, grup-10.xlsx)
+Liste kişi değil **oda üyesi firma** listesi. Tek sayfa, sayfa adı = grup ("grup 10").
+Sütunlar: `Sno, OSicilNo, Unvan, Nace, Ilce, Tel, Gsm, Mail, Adres, ortaklar, yetkililer, Temsil`.
+Eşleme: Unvan → `full_name` (kartta büyük ad), OSicilNo → `ref_no`, Ilce → `region`,
+yetkililer → `authority` (**`names_only()` ile**: doğum tarihi/yeri atılır), grup → sayfa adı
+(import ekranında değiştirilebilir sabit değer). Tel/Gsm/Mail/Adres/ortaklar/Temsil/Nace **alınmaz**.
+Ekranlarda etiketler: "Unvan", "Yetkili", "İlçe", "Grup", "Sicil No".
+Yeni alan **"Bizimle mi?"** (`people.stance`): seçenekler `config('stance_options')`,
+yetki `stance` (admin+yönetici), API `POST api/stance.php` (`person_id`, `value`).
+
 ## Değişmez kurallar (ihlal = iş reddedilir)
 
 1. **`src/` altındaki mevcut dosyalara DOKUNMA.** Çekirdek (auth, yetki, işaretleme) Claude'un.
@@ -43,6 +53,8 @@ sistem. Framework yok: **PHP 8.2 + PDO MySQL (MariaDB 10.4) + PhpSpreadsheet**. 
 | `people_breakdown($user, 'region'\|'group_name', ?$eventId)` → `[{value,label,total,came}]` | kırılım; `value === NONE_VALUE` boş olanlar |
 | `insert_person($eventId, $batchId, ['full_name','authority','region','group_name','ref_no','extra'=>array])` | import |
 | `search_key(...)` | Türkçe karaktersiz arama anahtarı |
+| `names_only($text)` | "AD SOYAD-tarih-yer,AD2-..." → "AD SOYAD, AD2" |
+| `stance_options()`, `stance_view($v)`, `stance_from_text($t)`, `set_stance($user,$id,$v)` | "Bizimle mi?" |
 | `render_header($title, $activeKey, ['ek.css'])`, `render_footer(['ek.js'])` | sayfa iskeleti; içerik `<main class="container">` içinde |
 
 Yetkiler (`can()`): `mark`, `unmark_any`, `view_all`, `dashboard`, `export`, `view_log`
@@ -54,7 +66,9 @@ Yetkiler (`can()`): `mark`, `unmark_any`, `view_all`, `dashboard`, `export`, `vi
 - `POST api/mark.php` (form: `person_id`, `action=mark|unmark`; başlık `X-CSRF-Token`)
   → başarı 200 `{ok:true, person, stats}`; hata `{ok:false, error, person?, stats}`
   durumlar: 401 oturum yok, 403 yetki/süre, 404 bulunamadı, 409 zaten işaretli/işaretsiz, 419 CSRF
-- `Person` = `{id, full_name, authority, region, group_name, ref_no, attended, attended_time, attended_by_name, mine, can_unmark}`
+- `Person` = `{id, full_name, authority, region, group_name, ref_no, attended, attended_time, attended_by_name, mine, can_unmark, stance}`
+  (`stance` = `{value,label,color}` ya da yetkisizse `null`)
+- `POST api/stance.php` (`person_id`, `value` = seçenek anahtarı ya da boş) → `{ok, person}`
 
 ### Tablolar (sql/schema.sql)
 `users`, `events(is_active)`, `people(event_id, batch_id, ref_no, full_name, authority, region,

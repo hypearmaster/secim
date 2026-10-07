@@ -18,6 +18,7 @@ const PERMISSIONS = [
     'dashboard'     => ['admin', 'yonetici'],
     'export'        => ['admin', 'yonetici'],
     'view_log'      => ['admin', 'yonetici'],
+    'stance'        => ['admin', 'yonetici'],           // "Bizimle mi?" sütununu görür ve değiştirir
     'import'        => ['admin'],
     'manage_events' => ['admin'],
     'manage_users'  => ['admin'],
