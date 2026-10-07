@@ -354,6 +354,14 @@ check('boş sayaçta geri al 409', !$u4['ok'] && $u4['status'] === 409 && $u4['t
 vote_add($yon, 'mavi'); vote_add($yon, 'kirmizi');
 check('yönetici sıfırlayamaz (sadece admin)', !vote_reset($yon)['ok'] && vote_reset($yon)['status'] === 403);
 check('oy kaydı denetimden bağımsız etkinliğe bağlı', vote_tallies($testEvent)['total'] === 2);
+// Codex bulgusu: istemcinin açtığı etkinlik değiştiyse yazma kaymasın
+$ve = vote_add($yon, 'mavi', $testEvent + 99999);
+check('yanlış etkinlik id ile +1 reddedilir (event_changed)', !$ve['ok'] && $ve['status'] === 409 && !empty($ve['event_changed']));
+check('doğru etkinlik id ile +1 çalışır', vote_add($yon, 'mavi', $testEvent)['ok']);
+check('event_id yanıtta döner', ($vt = vote_add($yon, 'kirmizi', null))['ok'] && $vt['event_id'] === $testEvent);
+$adminLike = array_merge($yon, ['role' => 'admin']); // can() geçilen dizinin rolüne bakar
+check('yanlış etkinlikte sıfırlama reddedilir', ($vr = vote_reset($adminLike, $testEvent + 99999))['status'] === 409 && !empty($vr['event_changed']));
+check('doğru etkinlikte sıfırlama çalışır', vote_reset($adminLike, $testEvent)['ok'] && vote_tallies($testEvent)['total'] === 0);
 
 // Hediye dağıtım
 require APP_ROOT . '/src/gifts.php';

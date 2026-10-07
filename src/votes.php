@@ -59,9 +59,27 @@ function vote_tallies(int $eventId): array
 }
 
 /**
+ * Yazma öncesi: aktif etkinlik var mı + istemcinin açtığı etkinlik hâlâ aktif mi?
+ * Etkinlik A→B değiştiyse A ekranındaki dokunuş sessizce B'ye yazılmasın.
+ * @return array{0:?array, 1:?array} [etkinlik, hata-dönüşü]; hata varsa ikinci dolu.
+ */
+function vote_active_event(?int $expectedEventId): array
+{
+    $event = active_event();
+    if ($event === null) {
+        return [null, ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.']];
+    }
+    if ($expectedEventId !== null && $expectedEventId !== $event['id']) {
+        return [null, ['ok' => false, 'status' => 409, 'event_changed' => true, 'event_id' => $event['id'],
+                       'error' => 'Aktif etkinlik değişti, sayfayı yenileyin.', 'tallies' => vote_tallies($event['id'])]];
+    }
+    return [$event, null];
+}
+
+/**
  * Bir seçeneğe +1. @return array{ok:bool, status:int, error?:string, tallies?:array}
  */
-function vote_add(array $user, string $optionKey): array
+function vote_add(array $user, string $optionKey, ?int $expectedEventId = null): array
 {
     if (!can('vote', $user)) {
         return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
@@ -69,13 +87,13 @@ function vote_add(array $user, string $optionKey): array
     if (!isset(vote_options()[$optionKey])) {
         return ['ok' => false, 'status' => 422, 'error' => 'Geçersiz seçenek.'];
     }
-    $event = active_event();
-    if ($event === null) {
-        return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
+    [$event, $err] = vote_active_event($expectedEventId);
+    if ($err !== null) {
+        return $err;
     }
     q('INSERT INTO vote_log (event_id, option_key, user_id, ip, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
         [$event['id'], $optionKey, $user['id'], client_ip_bin()]);
-    return ['ok' => true, 'status' => 200, 'tallies' => vote_tallies($event['id'])];
+    return ['ok' => true, 'status' => 200, 'event_id' => $event['id'], 'tallies' => vote_tallies($event['id'])];
 }
 
 /**
@@ -83,17 +101,17 @@ function vote_add(array $user, string $optionKey): array
  * Eşzamanlı iki geri al: biri satırı siler, öteki "zaten geri alınmış" döner (çift düşmez).
  * @return array{ok:bool, status:int, error?:string, tallies?:array, undone?:string}
  */
-function vote_undo(array $user, ?string $optionKey = null): array
+function vote_undo(array $user, ?string $optionKey = null, ?int $expectedEventId = null): array
 {
     if (!can('vote', $user)) {
         return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
     }
-    $event = active_event();
-    if ($event === null) {
-        return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
-    }
     if ($optionKey !== null && !isset(vote_options()[$optionKey])) {
         return ['ok' => false, 'status' => 422, 'error' => 'Geçersiz seçenek.'];
+    }
+    [$event, $err] = vote_active_event($expectedEventId);
+    if ($err !== null) {
+        return $err;
     }
     $pdo = db();
     $pdo->beginTransaction();
@@ -108,7 +126,7 @@ function vote_undo(array $user, ?string $optionKey = null): array
         $row = q($sql, $params)->fetch();
         if (!$row) {
             $pdo->commit();
-            return ['ok' => false, 'status' => 409, 'tallies' => vote_tallies($event['id']),
+            return ['ok' => false, 'status' => 409, 'event_id' => $event['id'], 'tallies' => vote_tallies($event['id']),
                     'error' => 'Geri alınacak kayıt yok.'];
         }
         q('DELETE FROM vote_log WHERE id = ?', [$row['id']]);
@@ -117,23 +135,35 @@ function vote_undo(array $user, ?string $optionKey = null): array
         $pdo->rollBack();
         throw $e;
     }
-    return ['ok' => true, 'status' => 200, 'tallies' => vote_tallies($event['id']),
+    return ['ok' => true, 'status' => 200, 'event_id' => $event['id'], 'tallies' => vote_tallies($event['id']),
             'undone' => vote_options()[$row['option_key']]['label'] ?? $row['option_key']];
 }
 
-/** Sayacı sıfırlar (sadece admin). Tüm tıklamaları siler; denetime yazılır. */
-function vote_reset(array $user): array
+/**
+ * Sayacı sıfırlar (sadece admin). Tüm tıklamaları siler; denetime yazılır.
+ * Okuma + silme tek transaction: eşzamanlı add/undo araya girip sayımı/denetimi bozamaz;
+ * denetime gerçekten SİLİNEN satır sayısı (rowCount) yazılır.
+ */
+function vote_reset(array $user, ?int $expectedEventId = null): array
 {
     if (!can('vote_reset', $user)) {
         return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
     }
-    $event = active_event();
-    if ($event === null) {
-        return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
+    [$event, $err] = vote_active_event($expectedEventId);
+    if ($err !== null) {
+        return $err;
     }
-    $before = vote_tallies($event['id']);
-    q('DELETE FROM vote_log WHERE event_id = ?', [$event['id']]);
-    audit('vote_reset', $event['name'], ['sıfırlanan toplam' => $before['total']]
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $before = vote_tallies($event['id']); // kırılım (silmeden önce, bilgi amaçlı)
+        $deleted = q('DELETE FROM vote_log WHERE event_id = ?', [$event['id']])->rowCount();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    audit('vote_reset', $event['name'], ['silinen' => $deleted]
         + array_column(array_map(fn($o) => [$o['label'], $o['count']], $before['options']), 1, 0), $user['id']);
-    return ['ok' => true, 'status' => 200, 'tallies' => vote_tallies($event['id'])];
+    return ['ok' => true, 'status' => 200, 'event_id' => $event['id'], 'tallies' => vote_tallies($event['id'])];
 }

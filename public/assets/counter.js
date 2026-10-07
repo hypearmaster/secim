@@ -19,8 +19,12 @@
     toast: document.getElementById('toast')
   };
   var counts = {};   // key -> sayı gösteren eleman
-  var pollTimer = null;
   var busy = false;
+  var netSeq = 0, applySeq = 0; // yanıt sırası: geç gelen eski yanıt yeniyi ezmesin
+
+  // Önceki örnekten (sayfa yenilemesiz gezinme) kalan zamanlayıcı/dinleyici varsa temizle
+  if (window.__counterPoll) { clearInterval(window.__counterPoll); window.__counterPoll = null; }
+  if (window.__counterVis) { document.removeEventListener('visibilitychange', window.__counterVis); window.__counterVis = null; }
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -51,6 +55,7 @@
   function post(action, option) {
     var data = { action: action };
     if (option) data.option = option;
+    if (cfg.eventId != null) data.event_id = cfg.eventId;
     var headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' };
     headers[CSRF_HEADER] = csrf;
     return fetch(cfg.api, { method: 'POST', body: new URLSearchParams(data), headers: headers, credentials: 'same-origin' })
@@ -101,15 +106,24 @@
     }
   }
 
+  // Yanıtı uygula: etkinlik değiştiyse yenile; eski sıralı yanıtı yok say; sonra çiz
+  function applyRes(res, seq, bumpKey) {
+    if (res && res.event_changed) { toast('Aktif liste değişti, yenileniyor…', 'warning'); setTimeout(function () { window.location.reload(); }, 800); return; }
+    if (res && res.event_id != null && cfg.eventId != null && res.event_id !== cfg.eventId) { window.location.reload(); return; }
+    if (seq !== undefined) { if (seq < applySeq) return; applySeq = seq; }
+    if (res && res.tallies) paint(res.tallies, bumpKey);
+  }
+
   function add(key, btn) {
     if (navigator.vibrate) navigator.vibrate(20);
     // İyimser: hemen +1 göster, sunucudan kesin değerle düzelt
     var c = counts[key];
     if (c) { c.textContent = String((parseInt(c.textContent, 10) || 0) + 1); c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); }
+    var seq = ++netSeq;
     post('add', key)
       .then(function (res) {
-        if (res.ok) { paint(res.tallies, key); }
-        else { toast(res.error || 'Sayılamadı', 'error'); if (res.tallies) paint(res.tallies); }
+        if (!res.ok && !res.event_changed) toast(res.error || 'Sayılamadı', 'error');
+        applyRes(res, seq, key);
       })
       .catch(function (err) { if (err.message !== 'auth') { toast('Bağlantı yok, tekrar deneyin', 'error'); refresh(); } });
   }
@@ -118,10 +132,12 @@
     if (busy) return;
     busy = true;
     els.undo.disabled = true;
+    var seq = ++netSeq;
     post('undo', null)
       .then(function (res) {
-        if (res.ok) { paint(res.tallies); toast('Geri alındı: ' + (res.undone || ''), 'success'); }
-        else { toast(res.error || 'Geri alınamadı', res.httpStatus === 409 ? 'warning' : 'error'); if (res.tallies) paint(res.tallies); }
+        if (res.ok) toast('Geri alındı: ' + (res.undone || ''), 'success');
+        else if (!res.event_changed) toast(res.error || 'Geri alınamadı', res.httpStatus === 409 ? 'warning' : 'error');
+        applyRes(res, seq);
       })
       .catch(function (err) { if (err.message !== 'auth') toast('Bağlantı yok, tekrar deneyin', 'error'); })
       .finally(function () { busy = false; els.undo.disabled = false; });
@@ -130,29 +146,35 @@
   if (els.reset) {
     els.reset.addEventListener('click', function () {
       if (!window.confirm('Oy sayacı sıfırlansın mı? Tüm sayımlar silinir, bu geri alınamaz.')) return;
+      var seq = ++netSeq;
       post('reset', null)
         .then(function (res) {
-          if (res.ok) { paint(res.tallies); toast('Sayaç sıfırlandı'); }
-          else toast(res.error || 'Sıfırlanamadı', 'error');
+          if (res.ok) toast('Sayaç sıfırlandı');
+          else if (!res.event_changed) toast(res.error || 'Sıfırlanamadı', 'error');
+          applyRes(res, seq);
         })
         .catch(function (err) { if (err.message !== 'auth') toast('Bağlantı yok, tekrar deneyin', 'error'); });
     });
   }
 
   function refresh() {
+    if (!document.body.contains(root)) { stopPoll(); return; } // sayfadan ayrıldık (yenilemesiz gezinme)
+    var seq = ++netSeq;
     fetch(cfg.api, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
       .then(function (r) { if (r.status === 401) { goLogin(); throw new Error('auth'); } return r.json(); })
-      .then(function (res) { if (res.ok && res.tallies) paint(res.tallies); })
+      .then(function (res) { if (res.ok) applyRes(res, seq); })
       .catch(function () { /* sessiz: bir sonraki poll dener */ });
   }
 
-  // Başka yöneticiler de sayıyor olabilir: düzenli tazele + sekmeye dönünce
-  function startPoll() { stopPoll(); pollTimer = setInterval(refresh, 4000); }
-  function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
-  document.addEventListener('visibilitychange', function () {
+  // Başka yöneticiler de sayıyor olabilir: düzenli tazele + sekmeye dönünce.
+  // Zamanlayıcı window'da: yenilemesiz gezinmede eski sayfanın poll'u birikmesin.
+  function startPoll() { stopPoll(); window.__counterPoll = setInterval(refresh, 4000); }
+  function stopPoll() { if (window.__counterPoll) clearInterval(window.__counterPoll); window.__counterPoll = null; }
+  window.__counterVis = function () {
     if (!document.body.contains(root)) { stopPoll(); return; }
     if (document.visibilityState === 'visible') { refresh(); startPoll(); } else { stopPoll(); }
-  });
+  };
+  document.addEventListener('visibilitychange', window.__counterVis);
 
   build(cfg.tallies.options || []);
   paint(cfg.tallies);

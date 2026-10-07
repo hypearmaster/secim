@@ -12,6 +12,7 @@ $config = [
     'api'      => url('api/vote.php'),
     'login'    => url('index.php'),
     'canReset' => $canReset,
+    'eventId'  => $event['id'] ?? null,
     'tallies'  => $event ? vote_tallies($event['id']) : ['options' => [], 'total' => 0, 'last' => null],
 ];
 

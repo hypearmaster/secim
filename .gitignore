@@ -2,3 +2,6 @@
 /vendor/
 /storage/*
 !/storage/.htaccess
+
+# Claude Code iç dosyaları (geçici worktree'ler)
+/.claude/
