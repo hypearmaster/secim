@@ -6,6 +6,8 @@
   var live = document.getElementById('vote-live');
   var total = document.getElementById('summary-total');
   var leader = document.getElementById('vote-leader');
+  var shareBar = document.getElementById('vote-share-bar');
+  var updated = document.getElementById('vote-updated');
   var pending = false, version = -1, eventId;
   if (window.__dashboardVotes) window.__dashboardVotes();
   var timer;
@@ -22,13 +24,15 @@
     else if (sorted.length > 1 && sorted[0].count === sorted[1].count) leader.textContent = 'Sayımda beraberlik';
     else leader.textContent = sorted[0].label + ' önde · ' + (sorted[0].count - (sorted[1] ? sorted[1].count : 0)) + ' oy fark';
     results.textContent = '';
+    shareBar.textContent = '';
     t.options.forEach(function (o) {
       var percent = t.total ? o.count / t.total * 100 : 0;
       var row = element('div', 'vote-result');
-      row.style.setProperty('--vote-color', /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#64748b');
+      var color = /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#64748b';
+      row.style.setProperty('--vote-color', color);
       var heading = element('div', 'vote-result-head');
       heading.appendChild(element('span', 'vote-result-label', o.label));
-      heading.appendChild(element('strong', '', o.count + ' oy · %' + percent.toFixed(1)));
+      heading.appendChild(element('span', 'vote-result-badge', t.total && o.count === sorted[0].count && (sorted.length === 1 || sorted[0].count > sorted[1].count) ? 'Önde' : ''));
       var bar = element('div', 'vote-result-bar');
       bar.setAttribute('role', 'progressbar');
       bar.setAttribute('aria-label', o.label + ' oy oranı');
@@ -38,7 +42,14 @@
       var fill = element('span', '');
       fill.style.width = percent + '%';
       bar.appendChild(fill);
-      row.appendChild(heading); row.appendChild(bar); results.appendChild(row);
+      row.appendChild(heading);
+      row.appendChild(element('strong', 'vote-result-count', o.count));
+      row.appendChild(element('span', 'vote-result-percent', '%' + percent.toFixed(1)));
+      row.appendChild(bar); results.appendChild(row);
+      var share = element('span', '');
+      share.style.background = color;
+      share.style.width = percent + '%';
+      shareBar.appendChild(share);
     });
     results.setAttribute('aria-busy', 'false');
   }
@@ -56,6 +67,7 @@
         eventId = res.event_id;
         if (typeof res.tallies.ver !== 'number' || res.tallies.ver > version) { paint(res.tallies); version = res.tallies.ver; }
         live.textContent = '● Canlı'; live.classList.remove('is-offline');
+        updated.textContent = 'Son kontrol: ' + new Date().toLocaleTimeString('tr-TR');
       })
       .catch(function () { if (document.body.contains(root)) { live.textContent = 'Bağlantı bekleniyor'; live.classList.add('is-offline'); } })
       .finally(function () { pending = false; });

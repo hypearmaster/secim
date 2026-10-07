@@ -66,10 +66,13 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
             <div><span class="stat-label">Oy sayımı</span><h2>Canlı sonuçlar</h2></div>
             <span class="vote-live" id="vote-live" role="status">Yükleniyor…</span>
         </div>
-        <div class="vote-summary-total"><strong id="summary-total">—</strong><span>toplam oy</span></div>
-        <p class="vote-leader" id="vote-leader" aria-live="polite">Güncel sonuçlar alınıyor…</p>
+        <div class="vote-summary-hero">
+            <div class="vote-summary-total"><strong id="summary-total">—</strong><span>toplam oy</span></div>
+            <p class="vote-leader" id="vote-leader" aria-live="polite">Güncel sonuçlar alınıyor…</p>
+        </div>
         <div id="vote-results" class="vote-results" aria-busy="true"><div class="vote-placeholder"></div><div class="vote-placeholder"></div></div>
-        <p class="muted vote-summary-note">Sayım devam ediyor · Her saniye güncellenir</p>
+        <div id="vote-share-bar" class="vote-share-bar" aria-hidden="true"></div>
+        <div class="vote-summary-footer"><span class="muted" id="vote-updated">Son kontrol bekleniyor</span><span class="muted">Saniyelik takip · Sayım devam ediyor</span></div>
     </section>
     <section class="card">
         <h2>İlçe Kırılımı</h2>
