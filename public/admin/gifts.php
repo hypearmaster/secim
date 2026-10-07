@@ -14,6 +14,11 @@ if (is_post()) {
     if (!$event) {
         redirect('admin/gifts.php');
     }
+    // Form açıkken aktif liste değiştiyse işlem başka listeyi silmesin
+    if ((int) ($_POST['event_id'] ?? 0) !== (int) $event['id']) {
+        flash('error', 'Aktif liste değişti, işlem yapılmadı. Sayfayı yenileyip tekrar deneyin.');
+        redirect('admin/gifts.php');
+    }
     $action = $_POST['action'] ?? '';
 
     if ($action === 'upload') {
@@ -69,12 +74,13 @@ render_header('Hediye listesi', 'gifts', ['admin.css']);
     <form method="post" enctype="multipart/form-data" class="row">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="upload">
+      <input type="hidden" name="event_id" value="<?= e($event['id']) ?>">
       <input class="input" type="file" name="file" accept=".xlsx,.csv" required style="flex:1;min-width:220px">
       <button class="btn btn-primary" type="submit"<?= $stats['total'] ? ' onclick="return confirm(\'Mevcut hediye listesi silinip yenisi yüklenecek. Devam?\')"' : '' ?>>Yükle</button>
     </form>
     <?php if ($stats['total']): ?>
       <form method="post" style="margin-top:12px" onsubmit="return confirm('Hediye listesi tamamen silinecek. Emin misiniz?')">
-        <?= csrf_field() ?><input type="hidden" name="action" value="clear">
+        <?= csrf_field() ?><input type="hidden" name="event_id" value="<?= e($event['id']) ?>"><input type="hidden" name="action" value="clear">
         <button class="btn btn-sm btn-danger" type="submit">Listeyi sil</button>
       </form>
     <?php endif; ?>

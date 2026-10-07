@@ -47,6 +47,10 @@ function vote_tallies(int $eventId): array
     $last = q('SELECT v.option_key, v.created_at, u.full_name FROM vote_log v
                LEFT JOIN users u ON u.id = v.user_id WHERE v.event_id = ? ORDER BY v.id DESC LIMIT 1', [$eventId])->fetch();
     return [
+        // ver: bu anlık görüntünün SUNUCU zamanı (mikrosaniye). İstemci yanıtları buna göre sıralar:
+        // geç gelen eski anlık görüntü, daha yeni (daha güncel) olanı ezemez. İstemci sıra no'su
+        // sunucudaki gerçek işlem sırasını yansıtmadığı için kullanılmaz.
+        'ver'     => (int) q('SELECT ROUND(UNIX_TIMESTAMP(NOW(6)) * 1000000)')->fetchColumn(),
         'options' => $options,
         'total'   => $total,
         'last'    => $last ? [

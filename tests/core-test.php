@@ -380,6 +380,8 @@ check('hediye geri alınır', $gu['ok'] && !$gu['gift']['given'] && gift_stats()
 $ga = add_gift($onay, 'Elle Hediye', 'A Firma');
 check('elle hediye eklenir (not ile)', $ga['ok'] && $ga['gift']['name'] === 'Elle Hediye' && $ga['gift']['note'] === 'A Firma' && gift_stats()['total'] === 4);
 check('boş ad 422', add_gift($yon, '   ')['status'] === 422);
+// Codex bulgusu: "İsim ya da not ara" → not da aranabilmeli (search_key'e not katılır)
+check('hediye notla aranır', in_array($ga['gift']['id'], array_column(search_gifts(['q' => 'a firma'], 50)['items'], 'id'), true));
 mark_gift($yon, $gid, true);
 $gPend = array_column(search_gifts(['status' => 'pending'], 200)['items'], 'id');
 $gGiven = array_column(search_gifts(['status' => 'given'], 200)['items'], 'id');

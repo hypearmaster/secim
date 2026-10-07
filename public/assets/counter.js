@@ -20,7 +20,7 @@
   };
   var counts = {};   // key -> sayı gösteren eleman
   var busy = false;
-  var netSeq = 0, applySeq = 0; // yanıt sırası: geç gelen eski yanıt yeniyi ezmesin
+  var appliedVer = 0; // en son uygulanan sunucu anlık-görüntü zamanı (tallies.ver)
 
   // Önceki örnekten (sayfa yenilemesiz gezinme) kalan zamanlayıcı/dinleyici varsa temizle
   if (window.__counterPoll) { clearInterval(window.__counterPoll); window.__counterPoll = null; }
@@ -106,12 +106,15 @@
     }
   }
 
-  // Yanıtı uygula: etkinlik değiştiyse yenile; eski sıralı yanıtı yok say; sonra çiz
-  function applyRes(res, seq, bumpKey) {
+  // Yanıtı uygula: etkinlik değiştiyse yenile; daha eski anlık görüntüyü (tallies.ver) yok say; sonra çiz.
+  // ver SUNUCU zamanıdır: hangi yanıt gelirse gelsin en güncel anlık görüntü kazanır (add/undo sırası karışsa da).
+  function applyRes(res, bumpKey) {
     if (res && res.event_changed) { toast('Aktif liste değişti, yenileniyor…', 'warning'); setTimeout(function () { window.location.reload(); }, 800); return; }
     if (res && res.event_id != null && cfg.eventId != null && res.event_id !== cfg.eventId) { window.location.reload(); return; }
-    if (seq !== undefined) { if (seq < applySeq) return; applySeq = seq; }
-    if (res && res.tallies) paint(res.tallies, bumpKey);
+    if (!res || !res.tallies) return;
+    var ver = res.tallies.ver;
+    if (typeof ver === 'number') { if (ver < appliedVer) return; appliedVer = ver; }
+    paint(res.tallies, bumpKey);
   }
 
   function add(key, btn) {
@@ -119,11 +122,10 @@
     // İyimser: hemen +1 göster, sunucudan kesin değerle düzelt
     var c = counts[key];
     if (c) { c.textContent = String((parseInt(c.textContent, 10) || 0) + 1); c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); }
-    var seq = ++netSeq;
     post('add', key)
       .then(function (res) {
         if (!res.ok && !res.event_changed) toast(res.error || 'Sayılamadı', 'error');
-        applyRes(res, seq, key);
+        applyRes(res, key);
       })
       .catch(function (err) { if (err.message !== 'auth') { toast('Bağlantı yok, tekrar deneyin', 'error'); refresh(); } });
   }
@@ -132,12 +134,11 @@
     if (busy) return;
     busy = true;
     els.undo.disabled = true;
-    var seq = ++netSeq;
     post('undo', null)
       .then(function (res) {
         if (res.ok) toast('Geri alındı: ' + (res.undone || ''), 'success');
         else if (!res.event_changed) toast(res.error || 'Geri alınamadı', res.httpStatus === 409 ? 'warning' : 'error');
-        applyRes(res, seq);
+        applyRes(res);
       })
       .catch(function (err) { if (err.message !== 'auth') toast('Bağlantı yok, tekrar deneyin', 'error'); })
       .finally(function () { busy = false; els.undo.disabled = false; });
@@ -146,12 +147,11 @@
   if (els.reset) {
     els.reset.addEventListener('click', function () {
       if (!window.confirm('Oy sayacı sıfırlansın mı? Tüm sayımlar silinir, bu geri alınamaz.')) return;
-      var seq = ++netSeq;
-      post('reset', null)
+        post('reset', null)
         .then(function (res) {
           if (res.ok) toast('Sayaç sıfırlandı');
           else if (!res.event_changed) toast(res.error || 'Sıfırlanamadı', 'error');
-          applyRes(res, seq);
+          applyRes(res);
         })
         .catch(function (err) { if (err.message !== 'auth') toast('Bağlantı yok, tekrar deneyin', 'error'); });
     });
@@ -159,10 +159,9 @@
 
   function refresh() {
     if (!document.body.contains(root)) { stopPoll(); return; } // sayfadan ayrıldık (yenilemesiz gezinme)
-    var seq = ++netSeq;
     fetch(cfg.api, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
       .then(function (r) { if (r.status === 401) { goLogin(); throw new Error('auth'); } return r.json(); })
-      .then(function (res) { if (res.ok) applyRes(res, seq); })
+      .then(function (res) { if (res.ok) applyRes(res); })
       .catch(function () { /* sessiz: bir sonraki poll dener */ });
   }
 

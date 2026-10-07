@@ -124,8 +124,9 @@ function add_gift(array $user, string $name, ?string $note = null): array
         return ['ok' => false, 'status' => 422, 'error' => 'İsim boş olamaz.'];
     }
     $note = clean_text($note, 190);
+    // Not da aranabilsin (ekranda "İsim ya da not ara"): search_key'e notu da kat
     q('INSERT INTO gifts (event_id, name, search_key, note, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
-        [$event['id'], $clean, search_key($clean), $note]);
+        [$event['id'], $clean, search_key($clean, $note), $note]);
     $id = (int) db()->lastInsertId();
     audit('gift_add', $clean, $note !== null ? ['not' => $note] : [], $user['id']);
     $row = q(GIFT_SELECT . ' WHERE g.id = ?', [$id])->fetch();
