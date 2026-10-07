@@ -24,12 +24,20 @@ $regionBreakdown = people_breakdown($user, 'region', $eventId);
 $groupBreakdown = people_breakdown($user, 'group_name', $eventId);
 $stanceBreakdown = [];
 if (can('stance', $user)) {
-    // Firma bazında (şubeler tek): onay ekranı ve Bizimkiler ile tutarlı olsun — şube şişmesi olmasın
-    foreach (q('SELECT stance, COUNT(DISTINCT firm_key) AS total,
-                       COUNT(DISTINCT CASE WHEN attended_at IS NOT NULL THEN firm_key END) AS came
-                FROM people WHERE event_id = ? GROUP BY stance ORDER BY stance IS NULL, stance', [$eventId])->fetchAll() as $r) {
-        $sv = stance_view($r['stance']);
-        $stanceBreakdown[] = ['label' => $sv['label'], 'color' => $sv['color'], 'total' => (int) $r['total'], 'came' => (int) $r['came']];
+    // Onay çipleriyle AYNI mantık (stance_breakdown): firma bazlı, firma başına tek stance, all-came
+    $sb = stance_breakdown($user, $eventId);
+    $order = [...array_keys(stance_options()), NONE_VALUE];
+    foreach ($sb as $key => $v) { // config'de olmayan (silinmiş) değerler de sona eklensin
+        if (!in_array($key, $order, true)) {
+            $order[] = $key;
+        }
+    }
+    foreach ($order as $key) {
+        if (!isset($sb[$key])) {
+            continue;
+        }
+        $sv = stance_view($key === NONE_VALUE ? null : $key);
+        $stanceBreakdown[] = ['label' => $sv['label'], 'color' => $sv['color'], 'total' => $sb[$key]['total'], 'came' => $sb[$key]['came']];
     }
 }
 

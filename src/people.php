@@ -383,14 +383,21 @@ function scope_stats(array $user): array
 
 /**
  * "Bizimle mi?" kırılımı — FİRMA bazında (şubeler tek). Onay ekranı çipleri + panel için.
- * @return array<string, int> stance anahtarı (null için NONE_VALUE) => firma sayısı
+ * Her firma TEK kez sayılır: firmanın stance'i temsilci şubesindir (MIN(id); şubeler normalde
+ * aynı stance'tedir). came = kapsamdaki tüm şubeleri işaretli (all-came; scope_stats ile aynı).
+ * @return array<string, array{total:int, came:int}> stance anahtarı (null için NONE_VALUE) => sayılar
  */
 function stance_breakdown(array $user, ?int $eventId = null): array
 {
     [$where, $params] = people_scope($user, 'p', $eventId);
+    $rows = q("SELECT rp.stance AS v, COUNT(*) AS total, COALESCE(SUM(f.all_came), 0) AS came FROM (
+                   SELECT p.firm_key, MIN(p.id) AS rep_id, MIN(p.attended_at IS NOT NULL) AS all_came
+                   FROM people p WHERE $where GROUP BY p.firm_key
+               ) f JOIN people rp ON rp.id = f.rep_id
+               GROUP BY rp.stance", $params)->fetchAll();
     $out = [];
-    foreach (q("SELECT p.stance AS v, COUNT(DISTINCT p.firm_key) AS total FROM people p WHERE $where GROUP BY p.stance", $params)->fetchAll() as $r) {
-        $out[$r['v'] ?? NONE_VALUE] = (int) $r['total'];
+    foreach ($rows as $r) {
+        $out[$r['v'] ?? NONE_VALUE] = ['total' => (int) $r['total'], 'came' => (int) $r['came']];
     }
     return $out;
 }

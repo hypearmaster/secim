@@ -161,8 +161,18 @@ check('Bizimle mi? tüm şubelere yazılır', $st['ok'] && q("SELECT COUNT(*) FR
 $ppl = (int) q('SELECT COUNT(*) FROM people WHERE event_id = ?', [$testEvent])->fetchColumn();
 $frm = (int) q('SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id = ?', [$testEvent])->fetchColumn();
 check('scope_stats firma sayar (şube değil)', scope_stats($yon)['total'] === $frm && $frm < $ppl, "firma=$frm kişi=$ppl");
-check('stance_breakdown firma bazlı (ZİNCİR 3 şube = 1 firma)', (stance_breakdown($yon)['bizimle'] ?? 0)
+check('stance_breakdown firma bazlı (ZİNCİR 3 şube = 1 firma)', (stance_breakdown($yon)['bizimle']['total'] ?? 0)
     === (int) q("SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id = ? AND stance = 'bizimle'", [$testEvent])->fetchColumn());
+// Codex: şubeler farklı stance olsa bile firma TEK kez sayılır (temsilci stance), toplam aşmaz
+$mixFirm = 'mix' . bin2hex(random_bytes(3));
+$mx1 = insert_person($testEvent, null, ['full_name' => 'KARMA MARKET AŞ A ŞUBE', 'authority' => 'Karma Yetkili', 'ref_no' => 'KM1', 'region' => 'Merkez']);
+$mx2 = insert_person($testEvent, null, ['full_name' => 'KARMA MARKET AŞ B ŞUBE', 'authority' => 'Karma Yetkili', 'ref_no' => 'KM2', 'region' => 'Merkez']);
+q("UPDATE people SET stance='bizimle' WHERE id=?", [$mx1]);
+q("UPDATE people SET stance='kararsiz' WHERE id=?", [$mx2]); // aynı firma, farklı stance (Excel'den gelebilir)
+$sbMix = stance_breakdown($yon);
+$sumFirms = array_sum(array_column($sbMix, 'total'));
+check('karma stance firma tek sayılır (toplam = firma sayısı)', $sumFirms === (int) q('SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id=?', [$testEvent])->fetchColumn(), "toplam=$sumFirms");
+q('DELETE FROM people WHERE id IN (?, ?)', [$mx1, $mx2]);
 check('Bizimle mi? başka şirkete yazılmaz', q('SELECT stance FROM people WHERE id = ?', [$b4])->fetchColumn() === null);
 check('yetkilisiz kayıtlar birleşmez', firm_key('AHMET KAYA', null, '1') !== firm_key('AHMET KAYA', null, '2'));
 

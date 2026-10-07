@@ -15,7 +15,7 @@ $groups = $event ? people_breakdown($user, 'group_name') : [];
 $stanceCounts = ($event && $canStance) ? stance_breakdown($user) : [];
 $stances = [];
 foreach (stance_options() as $value => [$label, $color]) {
-    $stances[] = ['value' => $value, 'label' => $label, 'color' => $color, 'total' => $stanceCounts[$value] ?? 0];
+    $stances[] = ['value' => $value, 'label' => $label, 'color' => $color, 'total' => $stanceCounts[$value]['total'] ?? 0];
 }
 
 $config = [
@@ -77,7 +77,7 @@ render_header('Onay', 'app', ['onay.css']);
       chip_row('region', 'İlçe', $regions);
       chip_row('group', 'Grup', $groups);
       if ($canStance) {
-          chip_row('stance', 'Bizimle mi?', [...$stances, ['value' => NONE_VALUE, 'label' => 'Belirsiz', 'total' => $stanceCounts[NONE_VALUE] ?? 0]]);
+          chip_row('stance', 'Bizimle mi?', [...$stances, ['value' => NONE_VALUE, 'label' => 'Belirsiz', 'total' => $stanceCounts[NONE_VALUE]['total'] ?? 0]]);
       }
       ?>
     </details>
