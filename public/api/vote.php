@@ -17,8 +17,13 @@ if (!is_post()) {
 csrf_verify();
 $action = $_POST['action'] ?? '';
 $option = is_string($_POST['option'] ?? null) && $_POST['option'] !== '' ? $_POST['option'] : null;
-// İstemcinin açtığı etkinlik: değiştiyse yazma başka listeye kaymasın
-$expected = isset($_POST['event_id']) && $_POST['event_id'] !== '' ? (int) $_POST['event_id'] : null;
+// İstemcinin açtığı etkinlik: değiştiyse yazma başka listeye kaymasın. ZORUNLU (bağlamsız yazma yok):
+// gerçek istemci her zaman gönderir; eksikse işlem reddedilir ve sayfa yenilenir.
+if (!isset($_POST['event_id']) || $_POST['event_id'] === '') {
+    json_response(['ok' => false, 'event_changed' => true, 'error' => 'Etkinlik doğrulanamadı, sayfayı yenileyin.',
+                   'event_id' => $event['id'] ?? null, 'tallies' => $event ? vote_tallies($event['id']) : null], 409);
+}
+$expected = (int) $_POST['event_id'];
 
 $result = match ($action) {
     'add'   => vote_add($user, (string) $option, $expected),

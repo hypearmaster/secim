@@ -78,6 +78,11 @@ if (!$has('people', 'firm_key')) {
     db()->exec("ALTER TABLE people ADD COLUMN firm_key VARCHAR(255) NOT NULL DEFAULT '' AFTER search_key, ADD KEY ix_people_event_firm (event_id, firm_key)");
     $migrated++;
 }
+if (!$has('events', 'vote_ver')) {
+    db()->exec("ALTER TABLE events ADD COLUMN vote_ver BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER is_active");
+    echo "  etkinlikler: oy sayacı sürümü sütunu eklendi
+";
+}
 if (!$has('people', 'phone')) {
     db()->exec("ALTER TABLE people ADD COLUMN phone VARCHAR(20) NULL AFTER ref_no");
     echo "  kişiler: telefon sütunu eklendi\n";

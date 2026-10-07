@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS events (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name        VARCHAR(160) NOT NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 0 COMMENT 'Aynı anda tek aktif etkinlik (kodda garanti edilir)',
+  vote_ver    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Oy sayacı sürümü: her +1/geri al/sıfırla artırır (yanıt sırası)',
   created_by  INT UNSIGNED NULL,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_events_active (is_active),

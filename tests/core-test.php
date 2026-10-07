@@ -359,6 +359,11 @@ $ve = vote_add($yon, 'mavi', $testEvent + 99999);
 check('yanlış etkinlik id ile +1 reddedilir (event_changed)', !$ve['ok'] && $ve['status'] === 409 && !empty($ve['event_changed']));
 check('doğru etkinlik id ile +1 çalışır', vote_add($yon, 'mavi', $testEvent)['ok']);
 check('event_id yanıtta döner', ($vt = vote_add($yon, 'kirmizi', null))['ok'] && $vt['event_id'] === $testEvent);
+// Codex bulgusu: ver monoton artmalı (sayımla aynı transaction, eski görüntü yeniyi ezmesin)
+$verA = vote_tallies($testEvent)['ver'];
+$verB = vote_add($yon, 'mavi', $testEvent)['tallies']['ver'];
+$verC = vote_undo($yon, 'mavi', $testEvent)['tallies']['ver'];
+check('ver her mutasyonda artar', $verB > $verA && $verC > $verB, "A=$verA B=$verB C=$verC");
 $adminLike = array_merge($yon, ['role' => 'admin']); // can() geçilen dizinin rolüne bakar
 check('yanlış etkinlikte sıfırlama reddedilir', ($vr = vote_reset($adminLike, $testEvent + 99999))['status'] === 409 && !empty($vr['event_changed']));
 check('doğru etkinlikte sıfırlama çalışır', vote_reset($adminLike, $testEvent)['ok'] && vote_tallies($testEvent)['total'] === 0);

@@ -26,6 +26,10 @@ function vote_options(): array
  */
 function vote_tallies(int $eventId): array
 {
+    // ver'i sayımlardan ÖNCE oku: ver, en çok sayımlar kadar günceldir (asla daha güncel değil).
+    // Böylece eski bir anlık görüntü yüksek ver ile gelip yeniyi EZEMEZ (güvenli yön). vote_ver
+    // monoton sayaç: her +1/geri al/sıfırla mutasyonun kendi transaction'ında +1 artar.
+    $ver = (int) q('SELECT vote_ver FROM events WHERE id = ?', [$eventId])->fetchColumn();
     $counts = [];
     foreach (q('SELECT option_key, COUNT(*) AS n FROM vote_log WHERE event_id = ? GROUP BY option_key', [$eventId])->fetchAll() as $r) {
         $counts[$r['option_key']] = (int) $r['n'];
@@ -47,10 +51,7 @@ function vote_tallies(int $eventId): array
     $last = q('SELECT v.option_key, v.created_at, u.full_name FROM vote_log v
                LEFT JOIN users u ON u.id = v.user_id WHERE v.event_id = ? ORDER BY v.id DESC LIMIT 1', [$eventId])->fetch();
     return [
-        // ver: bu anlık görüntünün SUNUCU zamanı (mikrosaniye). İstemci yanıtları buna göre sıralar:
-        // geç gelen eski anlık görüntü, daha yeni (daha güncel) olanı ezemez. İstemci sıra no'su
-        // sunucudaki gerçek işlem sırasını yansıtmadığı için kullanılmaz.
-        'ver'     => (int) q('SELECT ROUND(UNIX_TIMESTAMP(NOW(6)) * 1000000)')->fetchColumn(),
+        'ver'     => $ver, // sayımlardan önce okundu (üstte): eski görüntü yeniyi ezemez
         'options' => $options,
         'total'   => $total,
         'last'    => $last ? [
@@ -95,8 +96,17 @@ function vote_add(array $user, string $optionKey, ?int $expectedEventId = null):
     if ($err !== null) {
         return $err;
     }
-    q('INSERT INTO vote_log (event_id, option_key, user_id, ip, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
-        [$event['id'], $optionKey, $user['id'], client_ip_bin()]);
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        q('UPDATE events SET vote_ver = vote_ver + 1 WHERE id = ?', [$event['id']]); // sürüm, sayımla aynı transaction'da
+        q('INSERT INTO vote_log (event_id, option_key, user_id, ip, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
+            [$event['id'], $optionKey, $user['id'], client_ip_bin()]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
     return ['ok' => true, 'status' => 200, 'event_id' => $event['id'], 'tallies' => vote_tallies($event['id'])];
 }
 
@@ -134,6 +144,7 @@ function vote_undo(array $user, ?string $optionKey = null, ?int $expectedEventId
                     'error' => 'Geri alınacak kayıt yok.'];
         }
         q('DELETE FROM vote_log WHERE id = ?', [$row['id']]);
+        q('UPDATE events SET vote_ver = vote_ver + 1 WHERE id = ?', [$event['id']]);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -162,6 +173,7 @@ function vote_reset(array $user, ?int $expectedEventId = null): array
     try {
         $before = vote_tallies($event['id']); // kırılım (silmeden önce, bilgi amaçlı)
         $deleted = q('DELETE FROM vote_log WHERE event_id = ?', [$event['id']])->rowCount();
+        q('UPDATE events SET vote_ver = vote_ver + 1 WHERE id = ?', [$event['id']]);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
