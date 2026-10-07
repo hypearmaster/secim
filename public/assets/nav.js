@@ -26,6 +26,20 @@
   // Görünen yol: adres çubuğuna ve geçmişe yazılan değil, F5 için saklanan gerçek sayfa
   function pagePath(url) { return url.pathname + url.search; }
 
+  // Dışarıdan gelen yol (sessionStorage, history.state) GÜVENİLMEZ: sadece "/..." ile başlayan,
+  // aynı kökenli, uygulama içi bir sayfa kabul edilir. javascript:, //başka-site, https://... -> null
+  function safePage(p) {
+    if (typeof p !== 'string' || p.charAt(0) !== '/' || p.charAt(1) === '/' || p.charAt(1) === '\\') return null;
+    var url;
+    try { url = new URL(p, location.origin); } catch (e) { return null; }
+    return internal(url) ? url : null;
+  }
+
+  // Tam sayfa yüklemesine düşerken bile sadece kendi kökenimize git
+  function hardGo(url) {
+    window.location.href = (url && url.origin === location.origin && /^https?:$/.test(url.protocol)) ? url.toString() : root;
+  }
+
   function progress(on) {
     var bar = document.getElementById('nav-progress');
     if (!bar) {
@@ -89,7 +103,7 @@
         var type = r.headers.get('Content-Type') || '';
         if (type.indexOf('text/html') === -1) {
           // HTML değil (beklenmedik indirme vb.): normal yoldan aç
-          window.location.href = url.toString();
+          hardGo(url);
           return;
         }
         return r.text().then(function (html) {
@@ -101,7 +115,7 @@
       })
       .catch(function () {
         // Ağ hatası: kullanıcıyı ortada bırakma, normal sayfa yüklemesi dene
-        window.location.href = url.toString();
+        hardGo(url);
       })
       .finally(function () { busy = false; progress(false); });
   }
@@ -124,7 +138,8 @@
     if (form.closest('[data-no-nav]')) return;
     var btn = e.submitter || null;
     var method = ((btn && btn.getAttribute('formmethod')) || form.getAttribute('method') || 'GET').toUpperCase();
-    var url = new URL((btn && btn.getAttribute('formaction')) || form.getAttribute('action') || stored() || location.href, location.href);
+    var target = (btn && btn.getAttribute('formaction')) || form.getAttribute('action');
+    var url = target ? new URL(target, location.href) : (safePage(stored()) || new URL(location.href));
     if (!internal(url)) return;
     var data = new FormData(form);
     if (btn && btn.name) data.append(btn.name, btn.value);
@@ -142,25 +157,24 @@
 
   // Geri / ileri
   window.addEventListener('popstate', function (e) {
-    var page = (e.state && e.state.page) || stored();
-    if (page) load(new URL(page, location.origin), { method: 'GET' }, false);
+    var url = safePage(e.state && e.state.page) || safePage(stored());
+    if (url) load(url, { method: 'GET' }, false);
   });
 
   window.secimNav = {
     reload: function () {
-      var page = stored();
-      return load(new URL(page || location.href, location.origin), { method: 'GET' }, false);
+      return load(safePage(stored()) || new URL(location.href), { method: 'GET' }, false);
     }
   };
 
   // İlk açılış: gerçek sayfayı sakla, adresi köke çek. F5 (yenileme) ise son sayfayı geri aç
   // (kök adres sunucuda ana sayfaya yönlendirildiği için son sayfa sessionStorage'dan gelir).
   var current = new URL(location.href);
-  var last = stored();
+  var last = safePage(stored());
   var nav = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || {};
   var isReload = nav.type === 'reload';
-  if (document.querySelector('.topbar') && isReload && last && last !== pagePath(current)) {
-    load(new URL(last, location.origin), { method: 'GET' }, false);
+  if (document.querySelector('.topbar') && isReload && last && pagePath(last) !== pagePath(current)) {
+    load(last, { method: 'GET' }, false);
   } else {
     store(pagePath(current));
     history.replaceState({ page: pagePath(current) }, '', root);

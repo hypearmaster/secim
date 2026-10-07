@@ -64,39 +64,42 @@ if (is_post()) {
                     }
                 }
             } elseif ($action === 'edit') {
-                if ($targetId === $user['id'] && ($_POST['role'] ?? '') !== $target['role']) {
-                    flash('error', 'Kendi rolünüzü değiştiremezsiniz.');
-                } else {
-                    $newRole = $_POST['role'] ?? '';
-                    $newRegion = clean_text($_POST['region'] ?? '', 120) ?: null;
-                    $newName = clean_text($_POST['full_name'] ?? '', 120);
-                    $newPw = (string) ($_POST['new_password'] ?? '');
-                    if (!isset(ROLES[$newRole]) || !$newName) {
-                        flash('error', 'Geçersiz veri.');
-                    } elseif ($newPw !== '' && ($problem = password_problem($newPw))) {
-                        flash('error', $problem);
-                        redirect('admin/users.php?edit=' . $targetId);
-                    } elseif ($newRole !== $target['role'] && $target['role'] === 'admin'
-                        && (int) q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn() <= 1) {
-                        // Önce reddedilecek durumu kontrol et: hiçbir şey (şifre dahil) yarım değişmesin
-                        flash('error', 'Son aktif adminin rolü düşürülemez.');
-                    } else {
-                        q('UPDATE users SET full_name = ?, role = ?, region = ? WHERE id = ?', [$newName, $newRole, $newRegion, $targetId]);
-                        $changes = array_filter([
-                            'ad' => $newName !== $target['full_name'] ? $newName : null,
-                            'rol' => $newRole !== $target['role'] ? ROLES[$newRole] : null,
-                            'bölge' => $newRegion !== $target['region'] ? ($newRegion ?? '(tümü)') : null,
-                        ]);
-                        if ($changes) {
-                            audit('user_update', $target['username'], $changes);
-                        }
-                        if ($newPw !== '') {
-                            q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($newPw, PASSWORD_DEFAULT), $targetId]);
-                            audit('user_password', $target['username']);
-                        }
-                        flash('success', 'Kullanıcı güncellendi' . ($newPw !== '' ? ', şifre değişti.' : '.'));
-                    }
+                $newRole = (string) ($_POST['role'] ?? '');
+                $newRegion = clean_text($_POST['region'] ?? '', 120) ?: null;
+                $newName = clean_text($_POST['full_name'] ?? '', 120);
+                $newPw = (string) ($_POST['new_password'] ?? '');
+                // Reddedilecek durumlar ÖNCE: hiçbir şey (şifre dahil) yarım değişmesin
+                $problem = match (true) {
+                    $targetId === $user['id'] && $newRole !== $target['role'] => 'Kendi rolünüzü değiştiremezsiniz.',
+                    !isset(ROLES[$newRole]) => 'Geçersiz rol.',
+                    !$newName => 'Ad soyad boş olamaz.',
+                    $newPw !== '' && password_problem($newPw) !== null => password_problem($newPw),
+                    $newRole !== $target['role'] && $target['role'] === 'admin'
+                        && (int) q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn() <= 1
+                        => 'Son aktif adminin rolü düşürülemez.',
+                    default => null,
+                };
+                if ($problem !== null) {
+                    // Modal yazılanlarla (şifre HARİÇ) ve hata mesajıyla yeniden açılır
+                    flash('error', $problem);
+                    $_SESSION['old_user'] = ['id' => $targetId, 'full_name' => (string) ($_POST['full_name'] ?? ''),
+                                             'role' => $newRole, 'region' => $newRegion];
+                    redirect('admin/users.php?edit=' . $targetId);
                 }
+                q('UPDATE users SET full_name = ?, role = ?, region = ? WHERE id = ?', [$newName, $newRole, $newRegion, $targetId]);
+                $changes = array_filter([
+                    'ad' => $newName !== $target['full_name'] ? $newName : null,
+                    'rol' => $newRole !== $target['role'] ? ROLES[$newRole] : null,
+                    'bölge' => $newRegion !== $target['region'] ? ($newRegion ?? '(tümü)') : null,
+                ]);
+                if ($changes) {
+                    audit('user_update', $target['username'], $changes);
+                }
+                if ($newPw !== '') {
+                    q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($newPw, PASSWORD_DEFAULT), $targetId]);
+                    audit('user_password', $target['username']);
+                }
+                flash('success', 'Kullanıcı güncellendi' . ($newPw !== '' ? ', şifre değişti.' : '.'));
             }
         }
         redirect('admin/users.php');
@@ -131,6 +134,10 @@ $old = $_SESSION['old_user'] ?? [];
 unset($_SESSION['old_user']);
 $showModal = $editUser !== null || isset($_GET['new']);
 $form = $editUser ?? $old; // düzenleme: kayıt; hata sonrası yeni kullanıcı: yazılanlar
+if ($editUser && (int) ($old['id'] ?? 0) === (int) $editUser['id']) {
+    // düzenleme hatası: kayıt yerine yazılanlar (şifre hariç)
+    $form = array_merge($editUser, array_intersect_key($old, ['full_name' => 1, 'role' => 1, 'region' => 1]));
+}
 
 render_header('Kullanıcılar', 'users', ['admin.css']);
 ?>
