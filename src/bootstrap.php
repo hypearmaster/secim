@@ -19,9 +19,11 @@ error_reporting(E_ALL);
 // Saklama UTC; gösterim fmt_time()/fmt_datetime() ile yerel saate çevrilir.
 date_default_timezone_set('UTC');
 
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: same-origin');
+if (PHP_SAPI !== 'cli') {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: same-origin');
+}
 
 require APP_ROOT . '/vendor/autoload.php';
 require __DIR__ . '/helpers.php';

@@ -6,45 +6,35 @@ Roller: **Admin** (her şey), **Yönetici** (panel, kayıtlar, dışa aktarma, "
 
 PHP 8.2 + MySQL/MariaDB + PhpSpreadsheet. Framework yok. Teknik ayrıntı: `SPEC.md`.
 
-## Yerel kurulum (XAMPP, Windows)
+## Yerel kurulum (XAMPP, Windows PowerShell)
 
-```bash
-cd C:/xampp/htdocs
+Önce XAMPP Control Panel'den **Apache** ve **MySQL**'i başlat. Sonra PowerShell'de:
+
+```powershell
+cd C:\xampp\htdocs
 git clone https://github.com/hypearmaster/secim.git
 cd secim
 composer install
-cp config.example.php config.php
+C:\xampp\php\php.exe bin\setup.php --demo
 ```
 
-`config.php` içinde DB bilgilerini kontrol et. XAMPP varsayılanı `root` / boş şifre, `base_url` = `/secim/public`.
-Yerelde hata görmek için `'debug' => true` yap.
-
-Veritabanı (XAMPP MySQL açık olmalı):
-
-```bash
-C:/xampp/mysql/bin/mysql.exe -uroot -e "CREATE DATABASE secim CHARACTER SET utf8mb4 COLLATE utf8mb4_turkish_ci"
-C:/xampp/mysql/bin/mysql.exe -uroot secim < sql/schema.sql
-```
-
-İlk admin (şifre ekrana **bir kez** yazılır, not al):
-
-```bash
-C:/xampp/php/php.exe bin/create-user.php admin admin "Ad Soyad"
-```
+`setup.php` her şeyi kendisi yapar: `config.php`, veritabanı, tablolar, admin hesabı.
+`--demo` ile ayrıca 240 kişilik deneme listesi ve iki test hesabı (`onay1` bölgeli onaycı,
+`yonetici1`) açar. **Şifreler ekrana bir kez yazılır, not al.** Gerçek kurulumda `--demo` yazma.
+Tekrar çalıştırmak güvenli: var olan veriye dokunmaz.
 
 Aç: http://localhost/secim/public/
 
-### Denemek için örnek veri (isteğe bağlı)
+Güncellemek için: `git pull`, sonra yine `C:\xampp\php\php.exe bin\setup.php` (yeni tablo varsa ekler).
 
-```bash
-C:/xampp/php/php.exe bin/seed-demo.php
-C:/xampp/php/php.exe bin/create-user.php onay1 onayci "Test Onaycı" "Merkez"
-C:/xampp/php/php.exe bin/create-user.php yonetici1 yonetici "Test Yönetici"
-C:/xampp/php/php.exe tests/core-test.php
-```
-
-`seed-demo.php` 240 sahte kişilik "Demo Etkinlik" açar ve aktif yapar. Gerçek liste
-yüklendiğinde yeni etkinlik olarak gelir, demo arşivde kalır.
+Notlar:
+- Proje klasörün `C:\xampp\htdocs\secim` olmalı (adres `/secim/public`). Farklıysa
+  `config.php` → `base_url`'i değiştir.
+- `git clone`'u `secim` klasörünün **içinde** çalıştırma, iç içe `secim\secim` olur.
+- `Module "mysqli" is already loaded` uyarısı XAMPP'ın `php.ini` ayarından gelir, zararsız.
+- Bu proje Laravel değil: `php artisan` yok.
+- Şifre unutulursa: `C:\xampp\php\php.exe bin\create-user.php admin admin "Ad Soyad"` (şifreyi sıfırlar).
+- Çekirdek testleri (demo veri gerekir): `C:\xampp\php\php.exe tests\core-test.php`
 
 ## Kullanıcılar
 
