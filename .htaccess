@@ -3,5 +3,5 @@
 Options -Indexes
 RewriteEngine On
 RewriteRule ^$ public/ [R=302,L]
-RewriteRule ^(src|sql|bin|vendor|storage|\.git)(/|$) - [F,L]
+RewriteRule ^(src|sql|bin|vendor|storage|tests|\.git)(/|$) - [F,L]
 RewriteRule ^(config(\.example)?\.php|composer\.(json|lock)|[^/]+\.md|\.gitignore)$ - [F,L]
