@@ -10,8 +10,13 @@ $user = require_perm('supporters');
 $canManage = can('manage_supporters', $user);
 $event = active_event();
 if ($event) {
-    // Elle "Bizimle" işaretlenenler de Bizimkiler'de sayılsın (etiket = liste)
-    sync_stance_supporters($event['id'], $user['id']);
+    // Elle "Bizimle" işaretlenenler de Bizimkiler'de sayılsın (etiket = liste).
+    // Kilit o an alınamazsa sayfa yine açılır; senkron bir sonraki açılışta yapılır.
+    try {
+        sync_stance_supporters($event['id'], $user['id']);
+    } catch (BusyException $e) {
+        flash('info', 'Liste şu an güncelleniyor; sayılar birkaç saniye geriden gelebilir.');
+    }
 }
 
 if (is_post()) {

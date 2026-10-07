@@ -15,7 +15,11 @@ if ($personId <= 0) {
     json_response(['ok' => false, 'error' => 'Geçersiz istek.'], 422);
 }
 
-$result = set_stance($user, $personId, $value === '' ? null : $value);
+try {
+    $result = set_stance($user, $personId, $value === '' ? null : $value);
+} catch (BusyException $e) {
+    json_response(['ok' => false, 'error' => $e->getMessage()], 503);
+}
 $status = $result['status'];
 unset($result['status']);
 json_response($result, $status);

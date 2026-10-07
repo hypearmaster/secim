@@ -454,6 +454,11 @@ function set_stance(array $user, int $personId, ?string $value): array
 
 /* ---------- "Bizimle" etiketi ↔ Bizimkiler listesi ---------- */
 
+/** Kilit zamanında alınamadı: kullanıcıya "meşgul, tekrar dene" gösterilir (500 değil). */
+final class BusyException extends RuntimeException
+{
+}
+
 /**
  * Etiket↔liste senkronunu etkinlik başına SIRAYA sokar (MySQL adlı kilit). Paralel iki istek
  * aynı firma için iki "elle" kayıt açamaz. Satır kilitlerinden ÖNCE alınmalı (deadlock olmasın).
@@ -462,7 +467,7 @@ function with_supporter_lock(int $eventId, callable $fn): mixed
 {
     $name = 'secim_supporters_' . $eventId;
     if ((int) q('SELECT GET_LOCK(?, 10)', [$name])->fetchColumn() !== 1) {
-        throw new RuntimeException('Sistem meşgul, birkaç saniye sonra tekrar deneyin.');
+        throw new BusyException('Sistem meşgul, birkaç saniye sonra tekrar deneyin.');
     }
     try {
         return $fn();
