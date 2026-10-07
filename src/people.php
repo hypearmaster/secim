@@ -383,8 +383,9 @@ function scope_stats(array $user): array
 
 /**
  * "Bizimle mi?" kırılımı — FİRMA bazında (şubeler tek). Onay ekranı çipleri + panel için.
- * Her firma TEK kez sayılır: firmanın stance'i temsilci şubesindir (MIN(id); şubeler normalde
- * aynı stance'tedir). came = kapsamdaki tüm şubeleri işaretli (all-came; scope_stats ile aynı).
+ * Her firma TEK kez sayılır: firmanın stance'i onay kartındaki ilk şubenindir (full_name, id
+ * sırası = group_view ile aynı; şubeler normalde aynı stance'tedir).
+ * came = kapsamdaki tüm şubeleri işaretli (all-came; scope_stats ile aynı).
  * @return array<string, array{total:int, came:int}> stance anahtarı (null için NONE_VALUE) => sayılar
  */
 function stance_breakdown(array $user, ?int $eventId = null): array
