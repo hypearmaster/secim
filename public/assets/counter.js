@@ -167,7 +167,7 @@
 
   // Başka yöneticiler de sayıyor olabilir: düzenli tazele + sekmeye dönünce.
   // Zamanlayıcı window'da: yenilemesiz gezinmede eski sayfanın poll'u birikmesin.
-  function startPoll() { stopPoll(); window.__counterPoll = setInterval(refresh, 4000); }
+  function startPoll() { stopPoll(); window.__counterPoll = setInterval(refresh, 1000); }
   function stopPoll() { if (window.__counterPoll) clearInterval(window.__counterPoll); window.__counterPoll = null; }
   window.__counterVis = function () {
     if (!document.body.contains(root)) { stopPoll(); return; }

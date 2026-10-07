@@ -63,6 +63,6 @@
   function visible() { if (document.visibilityState === 'visible') refresh(); }
   window.__dashboardVotes = stop;
   document.addEventListener('visibilitychange', visible);
-  timer = setInterval(refresh, 4000);
+  timer = setInterval(refresh, 1000);
   refresh();
 })();
