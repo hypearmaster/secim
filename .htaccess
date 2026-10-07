@@ -1,0 +1,7 @@
+# Asıl kök public/ klasörüdür. Hosting docroot'u public/'e ayarlanamıyorsa
+# bu dosya diğer her şeyi web'den kapatır.
+Options -Indexes
+RewriteEngine On
+RewriteRule ^$ public/ [R=302,L]
+RewriteRule ^(src|sql|bin|vendor|storage|\.git)(/|$) - [F,L]
+RewriteRule ^(config(\.example)?\.php|composer\.(json|lock)|[^/]+\.md|\.gitignore)$ - [F,L]
