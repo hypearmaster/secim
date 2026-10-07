@@ -1,12 +1,23 @@
 <?php
 declare(strict_types=1);
 
-// Çekirdek davranış testi (kapsam, işaretleme, geri alma, arama). Demo veriyle çalışır.
-//   php bin/seed-demo.php && php tests/core-test.php
+// Çekirdek davranış testi (kapsam, işaretleme, geri alma, arama, Bizimle mi?).
+// KENDİ geçici listesini ve kullanıcılarını açar, bitince siler; gerçek listedeki
+// kişilere ve işaretlere DOKUNMAZ. Çalışırken (birkaç saniye) test listesi aktif olur;
+// bu yüzden işaretleme yapılan bir listede --force olmadan çalışmaz.
+//   php tests/core-test.php
 if (PHP_SAPI !== 'cli') {
     exit;
 }
 require __DIR__ . '/../src/bootstrap.php';
+
+$prevEvent = active_event();
+if ($prevEvent && !in_array('--force', $argv, true)
+    && (int) q('SELECT COUNT(*) FROM people WHERE event_id = ? AND attended_at IS NOT NULL', [$prevEvent['id']])->fetchColumn() > 0) {
+    fwrite(STDERR, "Aktif listede işaretleme var ({$prevEvent['name']}). Test birkaç saniye başka liste açacağı için durdu.\n"
+        . "Etkinlik bittiyse: php tests/core-test.php --force\n");
+    exit(2);
+}
 
 $fail = 0;
 function check(string $name, bool $ok, string $detail = ''): void
@@ -23,11 +34,34 @@ function user_by(string $username): array
     return $u;
 }
 
-$onay = user_by('onay1');        // onayci, bölge Merkez
-$yon = user_by('yonetici1');     // yonetici, tüm bölgeler
-$ev = active_event();
-check('aktif etkinlik var', $ev !== null);
-q('UPDATE people SET attended_at = NULL, attended_by = NULL WHERE event_id = ?', [$ev['id']]);
+function make_test_user(string $username, string $role, ?string $region): array
+{
+    q('INSERT INTO users (username, password_hash, full_name, role, region, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+        [$username, password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), 'Test ' . ROLES[$role], $role, $region]);
+    return user_by($username);
+}
+
+// ---- Geçici test verisi (bitince register_shutdown_function siler, hata olsa bile)
+$tag = 'zztest_' . bin2hex(random_bytes(3));
+$onay = make_test_user("{$tag}_onay", 'onayci', 'Merkez');   // bölge kısıtlı
+$yon = make_test_user("{$tag}_yon", 'yonetici', null);        // tüm bölgeler
+$testEvent = create_event("__TEST__ $tag", $yon['id']);       // aktif yapar
+register_shutdown_function(function () use ($testEvent, $prevEvent, $onay, $yon) {
+    q('DELETE FROM attendance_log WHERE event_id = ?', [$testEvent]);
+    q('DELETE FROM people WHERE event_id = ?', [$testEvent]);
+    q('DELETE FROM events WHERE id = ?', [$testEvent]);
+    q('DELETE FROM users WHERE id IN (?, ?)', [$onay['id'], $yon['id']]);
+    if ($prevEvent) {
+        activate_event($prevEvent['id']);
+    }
+    echo '  (geçici test verisi silindi' . ($prevEvent ? "; aktif liste geri alındı: {$prevEvent['name']}" : '') . ")\n";
+});
+foreach ([['Merkez', 'A Grubu'], ['Merkez', null], ['Merkez', 'B Grubu'], ['Merkez', null],
+          ['Kuzey', 'A Grubu'], ['Kuzey', null], ['Güney', 'B Grubu']] as $i => [$reg, $grp]) {
+    insert_person($testEvent, null, ['full_name' => "Test Kişi $i", 'authority' => 'Yetkili Ad', 'region' => $reg, 'group_name' => $grp, 'ref_no' => "T$i"]);
+}
+$ev = active_event(true);
+check('geçici test listesi aktif', $ev !== null && $ev['id'] === $testEvent);
 
 // Kapsam
 $r = search_people($onay, [], 200);

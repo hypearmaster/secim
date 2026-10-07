@@ -11,10 +11,10 @@ const NONE_VALUE = '__none__'; // filtrelerde "bölgesiz / grupsuz" anlamına ge
 
 /* ---------- Etkinlik ---------- */
 
-function active_event(): ?array
+function active_event(bool $refresh = false): ?array
 {
     static $loaded = false, $event = null;
-    if (!$loaded) {
+    if (!$loaded || $refresh) {
         $loaded = true;
         $event = q('SELECT id, name, created_at FROM events WHERE is_active = 1 ORDER BY id DESC LIMIT 1')->fetch() ?: null;
         if ($event) {
