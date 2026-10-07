@@ -78,6 +78,10 @@ if (!$has('people', 'firm_key')) {
     db()->exec("ALTER TABLE people ADD COLUMN firm_key VARCHAR(255) NOT NULL DEFAULT '' AFTER search_key, ADD KEY ix_people_event_firm (event_id, firm_key)");
     $migrated++;
 }
+if (!$has('supporters', 'source')) {
+    db()->exec("ALTER TABLE supporters ADD COLUMN source ENUM('list','manual') NOT NULL DEFAULT 'list' AFTER status");
+    echo "  Bizimkiler: kaynak sütunu eklendi\n";
+}
 $empty = q("SELECT id, full_name, authority, ref_no FROM people WHERE firm_key = ''")->fetchAll();
 foreach ($empty as $p) {
     q('UPDATE people SET firm_key = ? WHERE id = ?', [firm_key($p['full_name'], $p['authority'], $p['ref_no']), $p['id']]);

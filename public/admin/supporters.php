@@ -9,6 +9,10 @@ require APP_ROOT . '/src/supporters.php';
 $user = require_perm('supporters');
 $canManage = can('manage_supporters', $user);
 $event = active_event();
+if ($event) {
+    // Elle "Bizimle" işaretlenenler de Bizimkiler'de sayılsın (etiket = liste)
+    sync_stance_supporters($event['id'], $user['id']);
+}
 
 if (is_post()) {
     $user = require_perm('manage_supporters');
@@ -38,6 +42,20 @@ if (is_post()) {
                 flash('error', $e->getMessage());
             }
         }
+        redirect('admin/supporters.php');
+    }
+
+    if ($action === 'delete_none' || $action === 'independent_none') {
+        $none = q("SELECT * FROM supporters WHERE event_id = ? AND status = 'none'", [$event['id']])->fetchAll();
+        $pdo = db();
+        $pdo->beginTransaction();
+        foreach ($none as $sup) {
+            $action === 'delete_none' ? delete_supporter($sup) : make_independent($sup);
+        }
+        $pdo->commit();
+        audit($action === 'delete_none' ? 'supporter_unlink' : 'supporter_link', count($none) . ' bulunamayan',
+            ['işlem' => $action === 'delete_none' ? 'toplu sil' : 'toplu bağımsız kaydet', 'isimler' => array_column($none, 'name')]);
+        flash('success', count($none) . ' bulunamayan isim ' . ($action === 'delete_none' ? 'listeden silindi.' : 'bağımsız olarak kaydedildi; onay ekranında "Bağımsız" grubunda.'));
         redirect('admin/supporters.php');
     }
 
@@ -73,6 +91,16 @@ if (is_post()) {
             } else {
                 flash('error', 'Kişi bu listede değil.');
             }
+            break;
+        case 'delete':
+            $kept = delete_supporter($sup);
+            audit('supporter_unlink', $sup['name'], ['işlem' => 'listeden silindi']);
+            flash('info', "{$sup['name']} listeden silindi." . ($kept ? ' (Bağımsız kaydının GELDİ işlemi olduğu için kişi kaydı korundu.)' : ''));
+            break;
+        case 'independent':
+            make_independent($sup);
+            audit('supporter_link', $sup['name'], ['işlem' => 'bağımsız kaydedildi']);
+            flash('success', "{$sup['name']} bağımsız kaydedildi; onay ekranında \"" . INDEPENDENT_GROUP . "\" grubunda.");
             break;
         case 'unlink':
             unlink_supporter($sup, $pid);
@@ -187,12 +215,25 @@ render_header('Bizimkiler', 'supporters', ['admin.css']);
       <?php endforeach; ?>
     </nav>
 
+    <?php if ($canManage && $filter === 'review' && $stats['none']): ?>
+      <div class="row sup-bulk">
+        <span class="muted"><?= e($stats['none']) ?> bulunamayan için:</span>
+        <form method="post" class="inline" onsubmit="return confirm('Bulunamayan <?= e($stats['none']) ?> isim firmasız (bağımsız) kişi olarak eklensin mi?')">
+          <?= csrf_field() ?><input type="hidden" name="action" value="independent_none"><button class="btn btn-sm" type="submit">Hepsini bağımsız kaydet</button>
+        </form>
+        <form method="post" class="inline" onsubmit="return confirm('Bulunamayan <?= e($stats['none']) ?> isim listeden silinsin mi?')">
+          <?= csrf_field() ?><input type="hidden" name="action" value="delete_none"><button class="btn btn-sm btn-danger" type="submit">Hepsini sil</button>
+        </form>
+      </div>
+    <?php endif; ?>
     <div class="sup-list">
     <?php foreach ($rows as $s): ?>
       <div class="sup-row sup-<?= e($s['status']) ?><?= $s['came'] ? ' is-came' : '' ?>">
         <div class="sup-main">
           <div class="row" style="gap:6px">
             <strong><?= e($s['name']) ?></strong>
+            <?php if ($s['source'] === 'manual'): ?><span class="badge badge-bizimle">Elle eklendi</span><?php endif; ?>
+            <?php if ($s['people'] && $s['people'][0]['group_name'] === INDEPENDENT_GROUP && $s['people'][0]['batch_id'] === null): ?><span class="badge">Bağımsız</span><?php endif; ?>
             <?php if ($s['status'] === 'suggested'): ?><span class="badge badge-warning">Tahmin — onay bekliyor</span>
             <?php elseif ($s['status'] === 'none'): ?><span class="badge badge-danger">Bulunamadı</span>
             <?php elseif ($s['came']): ?><span class="badge badge-success">✓ Geldi</span>
@@ -212,9 +253,11 @@ render_header('Bizimkiler', 'supporters', ['admin.css']);
               <?= sup_button($s['id'], 'confirm', 'Doğru', 'btn-success', $filter) ?>
               <?= sup_button($s['id'], 'reject', 'Hiçbiri', 'btn-ghost', $filter) ?>
             <?php endif; ?>
-            <?php if ($s['status'] !== 'matched' || $s['people']): ?>
-              <a class="btn btn-sm btn-ghost" href="<?= e(url('admin/supporters.php?find=' . $s['id'])) ?>"><?= $s['people'] ? '+ Firma' : 'Firma bul' ?></a>
+            <a class="btn btn-sm btn-ghost" href="<?= e(url('admin/supporters.php?find=' . $s['id'])) ?>"><?= $s['people'] ? '+ Firma' : 'Firma bul' ?></a>
+            <?php if ($s['status'] === 'none'): ?>
+              <?= sup_button($s['id'], 'independent', 'Bağımsız kaydet', 'btn-ghost', $filter, 0, 'Firmasız kişi olarak eklensin mi? Onay ekranında GELDİ işaretlenebilir.') ?>
             <?php endif; ?>
+            <?= sup_button($s['id'], 'delete', 'Sil', 'btn-ghost sup-del', $filter, 0, $s['name'] . ' listeden silinsin mi?') ?>
           </div>
         <?php endif; ?>
       </div>
@@ -227,7 +270,7 @@ render_header('Bizimkiler', 'supporters', ['admin.css']);
   <section class="card">
     <h2>Bizim listeyi yükle</h2>
     <p class="muted">Ad soyad sütunu olan .xlsx ya da .csv. Aktif listeye (“<?= e($event['name']) ?>”) göre eşleştirilir; varsa önceki bizim liste <strong>yerine geçer</strong>.
-      Tam eşleşenler otomatik “Bizimle” olur, benzerler onayınızı bekler.</p>
+      Tam eşleşenler otomatik “Bizimle” olur, benzerler onayınızı bekler. Onay ekranında elle “Bizimle” işaretlenenler korunur.</p>
     <form method="post" enctype="multipart/form-data" class="row">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="upload">

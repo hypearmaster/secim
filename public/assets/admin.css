@@ -26,3 +26,5 @@
 @media (max-width: 520px) { .sup-row { flex-direction: column; } .sup-actions { flex-direction: row; flex-wrap: wrap; } }
 
 .audit-detail { font-size: .85rem; min-width: 180px; }
+.sup-bulk { gap: 8px; margin-bottom: 10px; padding: 10px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.sup-del { color: var(--danger); }

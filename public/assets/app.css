@@ -70,6 +70,7 @@ a { color: var(--primary); }
 .badge-role { background: var(--primary-soft); color: var(--primary-hover); border-color: transparent; }
 .topbar .badge-role { background: rgba(255,255,255,.12); color: #e2e8f0; }
 .badge-muted { background: var(--surface-2); color: var(--muted); }
+.badge-bizimle { background: var(--bizimle-soft); color: var(--bizimle); border-color: transparent; }
 .badge-success { background: var(--success-soft); color: var(--success); border-color: transparent; }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .badge-warning { background: var(--warning-soft); color: var(--warning); border-color: transparent; }

@@ -79,7 +79,9 @@ function people_scope(array $user, string $alias = 'p', ?int $eventId = null): a
     $sql = "$alias.event_id = ?";
     $params = [$eventId];
     if (!can('view_all', $user) && ($user['region'] ?? '') !== '') {
-        $sql .= " AND $alias.region = ?";
+        // Kendi bölgesi + bölgesiz kayıtlar (örn. Bizimkiler'den "bağımsız" eklenenler):
+        // bölgesi olmayan kişiyi kapıdaki her onaycı bulabilmeli. Başka bölge görünmez.
+        $sql .= " AND ($alias.region = ? OR $alias.region IS NULL OR $alias.region = '')";
         $params[] = $user['region'];
     }
     return [$sql, $params];
@@ -434,12 +436,85 @@ function set_stance(array $user, int $personId, ?string $value): array
                 [$event['id'], $m['id'], $user['id'], 'stance', $value, client_ip_bin()]
             );
         }
+        sync_supporter_for_group($event['id'], array_map('intval', array_column($members, 'id')), $value, $user['id']);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
     }
     return ['ok' => true, 'status' => 200, 'person' => group_view(find_group($user, $personId), $user)];
+}
+
+/* ---------- "Bizimle" etiketi ↔ Bizimkiler listesi ---------- */
+
+/** Bizimkiler'de sayılan "Bizimle mi?" anahtarı (config'de yoksa null). */
+function supporter_stance(): ?string
+{
+    $key = (string) config('supporter_stance', 'bizimle');
+    return isset(stance_options()[$key]) ? $key : null;
+}
+
+/**
+ * Etiket ile liste tek gerçek: "Bizimle" olan her firma grubu Bizimkiler'de sayılır.
+ *  - Bizimle yapıldı, hiçbir onaylı Bizimkiler kaydına bağlı değil → "elle" kaynaklı kayıt açılır.
+ *  - Bizimle'den çıkarıldı → bağlar kopar; bağı kalmayan elle kayıt silinir, liste kaydı "Bulunamadı"ya döner.
+ * Çağıranın transaction'ı içinde çalışır.
+ */
+function sync_supporter_for_group(int $eventId, array $ids, ?string $value, ?int $userId): void
+{
+    $bizimle = supporter_stance();
+    if ($bizimle === null || !$ids) {
+        return;
+    }
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    if ($value === $bizimle) {
+        $linked = (int) q("SELECT COUNT(*) FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id AND s.status = 'matched'
+                           WHERE sp.person_id IN ($in)", $ids)->fetchColumn();
+        if ($linked) {
+            return;
+        }
+        $p = q('SELECT full_name, authority FROM people WHERE id = ?', [$ids[0]])->fetch();
+        $name = trim(explode(',', (string) $p['authority'])[0]) ?: $p['full_name'];
+        q("INSERT INTO supporters (event_id, name, search_key, status, source, created_by, created_at)
+           VALUES (?, ?, ?, 'matched', 'manual', ?, UTC_TIMESTAMP())", [$eventId, $name, search_key($name), $userId]);
+        $sid = (int) db()->lastInsertId();
+        foreach ($ids as $id) {
+            q('INSERT IGNORE INTO supporter_people (supporter_id, person_id) VALUES (?, ?)', [$sid, $id]);
+        }
+        return;
+    }
+    $sids = q("SELECT DISTINCT supporter_id FROM supporter_people WHERE person_id IN ($in)", $ids)->fetchAll(PDO::FETCH_COLUMN);
+    if (!$sids) {
+        return;
+    }
+    q("DELETE FROM supporter_people WHERE person_id IN ($in)", $ids);
+    foreach ($sids as $sid) {
+        if ((int) q('SELECT COUNT(*) FROM supporter_people WHERE supporter_id = ?', [$sid])->fetchColumn() === 0) {
+            q("DELETE FROM supporters WHERE id = ? AND source = 'manual'", [$sid]);
+            q("UPDATE supporters SET status = 'none' WHERE id = ? AND source = 'list'", [$sid]);
+        }
+    }
+}
+
+/**
+ * Var olan "Bizimle" etiketlerini (elle verilmiş, ya da Excel'in stance sütunundan gelmiş)
+ * Bizimkiler'e taşır. Tekrar çalıştırmak güvenli. @return açılan kayıt sayısı
+ */
+function sync_stance_supporters(int $eventId, ?int $userId): int
+{
+    $bizimle = supporter_stance();
+    if ($bizimle === null) {
+        return 0;
+    }
+    $keys = q("SELECT DISTINCT p.firm_key FROM people p WHERE p.event_id = ? AND p.stance = ?
+               AND NOT EXISTS (SELECT 1 FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id AND s.status = 'matched'
+                               WHERE sp.person_id = p.id)", [$eventId, $bizimle])->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($keys as $key) {
+        $ids = array_map('intval', q('SELECT id FROM people WHERE event_id = ? AND firm_key = ? AND stance = ?',
+            [$eventId, $key, $bizimle])->fetchAll(PDO::FETCH_COLUMN));
+        sync_supporter_for_group($eventId, $ids, $bizimle, $userId);
+    }
+    return count($keys);
 }
 
 /* ---------- Excel yardımcıları ---------- */

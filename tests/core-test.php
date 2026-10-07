@@ -192,6 +192,43 @@ q('UPDATE people SET stance = ? WHERE id = ?', ['bizimle', $p4]); // elle "Bizim
 clear_supporters($testEvent);
 check('liste silinince verdiği işaretler kalkar', $stanceOf($p1) === null && $stanceOf($p3) === null && $stanceOf($p5) === null);
 check('elle verilen "Bizimle" korunur', $stanceOf($p4) === 'bizimle');
+// "Bizimle" etiketi = Bizimkiler listesi (Enes'in bulduğu: elle Bizimle işaretlenen sayılmıyordu)
+q('DELETE FROM supporters WHERE event_id = ?', [$testEvent]);           // önceki bölümlerden temiz sayfa
+q('UPDATE people SET stance = NULL WHERE event_id = ?', [$testEvent]);
+$m1 = insert_person($testEvent, null, ['full_name' => 'ELLE TİCARET LTD', 'authority' => 'Elle Kişi', 'region' => 'Merkez']);
+$m2 = insert_person($testEvent, null, ['full_name' => 'LİSTE TİCARET LTD', 'authority' => 'Liste Kişi', 'region' => 'Merkez']);
+import_supporters($testEvent, ['Liste Kişi'], $yon['id']);
+set_stance($yon, $m1, 'bizimle');                     // listede yok, elle işaretlendi
+mark_person($yon, $m1);
+mark_person($yon, $m2);
+$st = supporter_stats($testEvent);
+check('elle Bizimle işaretlenen Bizimkiler\'de sayılır (2 gelen)', $st['came'] === 2 && $st['matched'] === 2, json_encode($st));
+check('elle kayıt "manual" kaynaklı', q("SELECT source FROM supporters WHERE event_id = ? AND name = 'Elle Kişi'", [$testEvent])->fetchColumn() === 'manual');
+import_supporters($testEvent, ['Liste Kişi'], $yon['id']); // listeyi yeniden yükle
+check('liste yeniden yüklenince elle kayıt korunur', supporter_stats($testEvent)['matched'] === 2 && $stanceOf($m1) === 'bizimle');
+set_stance($yon, $m1, 'kararsiz');
+check('Bizimle kaldırılınca listeden düşer', supporter_stats($testEvent)['matched'] === 1
+    && !q("SELECT COUNT(*) FROM supporters WHERE event_id = ? AND name = 'Elle Kişi'", [$testEvent])->fetchColumn());
+set_stance($yon, $m1, 'bizimle');
+import_supporters($testEvent, ['Liste Kişi', 'Elle Kişi'], $yon['id']);
+check('listede de varsa elle kayıt tekrarlanmaz', (int) q("SELECT COUNT(*) FROM supporters WHERE event_id = ? AND search_key = 'elle kisi'", [$testEvent])->fetchColumn() === 1);
+// Sil / Bağımsız kaydet
+import_supporters($testEvent, ['Liste Kişi', 'Firmasız Biri', 'İSİMSİZ'], $yon['id']);
+$fb = q("SELECT * FROM supporters WHERE event_id = ? AND name = 'Firmasız Biri'", [$testEvent])->fetch();
+$isz = q("SELECT * FROM supporters WHERE event_id = ? AND name = 'İSİMSİZ'", [$testEvent])->fetch();
+check('firmasız isim bulunamadı', $fb['status'] === 'none' && $isz['status'] === 'none');
+$ip = make_independent($fb);
+check('bağımsız kaydet: Bağımsız grubunda kişi + Bizimle', q('SELECT group_name FROM people WHERE id = ?', [$ip])->fetchColumn() === INDEPENDENT_GROUP && $stanceOf($ip) === 'bizimle');
+check('bağımsız kişi onay ekranında aranır ve işaretlenir', count(search_people($onay, ['q' => 'firmasiz biri'])['items']) === 1 && mark_person($onay, $ip)['ok']);
+check('bağımsız gelen Bizimkiler\'de sayılır', supporter_stats($testEvent)['came'] >= 2);
+delete_supporter($isz);
+check('sil: isim listeden kalkar', !q('SELECT COUNT(*) FROM supporters WHERE id = ?', [$isz['id']])->fetchColumn());
+$fb = q('SELECT * FROM supporters WHERE id = ?', [$fb['id']])->fetch();
+check('GELDİ kaydı olan bağımsız kişi silinmez', delete_supporter($fb) === 1 && q('SELECT COUNT(*) FROM people WHERE id = ?', [$ip])->fetchColumn() == 1);
+$indep2 = make_independent(['id' => 0, 'event_id' => $testEvent, 'name' => 'Geçici Bağımsız'] + q("SELECT * FROM supporters WHERE event_id = ? LIMIT 1", [$testEvent])->fetch());
+q('DELETE FROM supporter_people WHERE person_id = ?', [$indep2]);
+q('DELETE FROM people WHERE id = ?', [$indep2]);
+
 check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
 q("DELETE FROM audit_log WHERE target = '__test__'");
 

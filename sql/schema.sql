@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS supporters (
   search_key  VARCHAR(255) NOT NULL DEFAULT '',
   status      ENUM('matched','suggested','none') NOT NULL DEFAULT 'none'
               COMMENT 'matched = onaylı eşleşme; suggested = sistem tahmini, admin onayı bekler; none = bulunamadı',
+  source      ENUM('list','manual') NOT NULL DEFAULT 'list'
+              COMMENT 'list = yüklenen isim listesinden; manual = onay ekranında elle Bizimle işaretlenen',
   created_by  INT UNSIGNED NULL,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_sup_event (event_id, status),

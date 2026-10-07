@@ -9,12 +9,8 @@ declare(strict_types=1);
  * Bir isim birden çok firmanın yetkilisi olabilir: hepsi bağlanır.
  */
 
-/** Eşleşen kişilere yazılacak "Bizimle mi?" değeri (config'de yoksa stance yazılmaz). */
-function supporter_stance(): ?string
-{
-    $key = (string) config('supporter_stance', 'bizimle');
-    return isset(stance_options()[$key]) ? $key : null;
-}
+/** Firmasız (bağımsız) kaydedilen kişilerin grubu. */
+const INDEPENDENT_GROUP = 'Bağımsız';
 
 /** İsim listesi dosyasından isimleri çıkarır (başlığa göre ad sütunu, yoksa en çok yazı olan sütun). */
 function read_name_list(string $path, string $ext): array
@@ -156,6 +152,16 @@ function import_supporters(int $eventId, array $names, int $userId): array
             }
             $stats[$status]++;
         }
+        // Elle "Bizimle" işaretlenmiş ve şimdi listeyle eşleşen gruplar: elle kaydı fazlalık, sil
+        // (MySQL silinen tabloyu alt sorguda okutmaz: önce bul, sonra sil)
+        $dupes = q("SELECT s.id FROM supporters s WHERE s.event_id = ? AND s.source = 'manual'
+                    AND NOT EXISTS (SELECT 1 FROM supporter_people sp WHERE sp.supporter_id = s.id
+                        AND NOT EXISTS (SELECT 1 FROM supporter_people sp2 JOIN supporters l ON l.id = sp2.supporter_id
+                                        WHERE sp2.person_id = sp.person_id AND l.source = 'list' AND l.status = 'matched'))",
+            [$eventId])->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($dupes as $sid) {
+            q('DELETE FROM supporters WHERE id = ?', [$sid]);
+        }
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -164,13 +170,69 @@ function import_supporters(int $eventId, array $names, int $userId): array
     return $stats;
 }
 
-/** Etkinliğin Bizimkiler listesini siler; onların verdiği "Bizimle" işaretlerini geri alır. Transaction içinde çağrılabilir. */
+/**
+ * Yüklenen isim listesini siler (elle "Bizimle" işaretlenenler KALIR); listenin verdiği
+ * "Bizimle" işaretlerini geri alır. Transaction içinde çağrılabilir.
+ */
 function clear_supporters(int $eventId): void
 {
     $pids = q("SELECT sp.person_id FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
-               WHERE s.event_id = ? AND s.status = 'matched'", [$eventId])->fetchAll(PDO::FETCH_COLUMN);
-    q('DELETE FROM supporters WHERE event_id = ?', [$eventId]); // supporter_people CASCADE
+               WHERE s.event_id = ? AND s.status = 'matched' AND s.source = 'list'", [$eventId])->fetchAll(PDO::FETCH_COLUMN);
+    $sids = q("SELECT id FROM supporters WHERE event_id = ? AND source = 'list'", [$eventId])->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($sids as $sid) {
+        delete_independent_people((int) $sid);
+    }
+    q("DELETE FROM supporters WHERE event_id = ? AND source = 'list'", [$eventId]); // supporter_people CASCADE
     release_supporter_stance(array_map('intval', $pids));
+}
+
+/** Bu kayda bağlı bağımsız kişileri (firmasız, Bizimkiler'den eklenen) siler; GELDİ kaydı olan kalır. */
+function delete_independent_people(int $supporterId): int
+{
+    $kept = 0;
+    $rows = q("SELECT p.id FROM supporter_people sp JOIN people p ON p.id = sp.person_id
+               WHERE sp.supporter_id = ? AND p.batch_id IS NULL AND p.group_name = ?", [$supporterId, INDEPENDENT_GROUP])->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($rows as $pid) {
+        if ((int) q('SELECT COUNT(*) FROM attendance_log WHERE person_id = ?', [$pid])->fetchColumn()) {
+            $kept++; // işlem kaydı var: silinmez (denetim izi bozulmasın)
+            continue;
+        }
+        q('DELETE FROM supporter_people WHERE person_id = ?', [$pid]);
+        q('DELETE FROM people WHERE id = ?', [$pid]);
+    }
+    return $kept;
+}
+
+/** Tek kaydı listeden siler; verdiği "Bizimle" işaretini geri alır. @return silinemeyen bağımsız kişi sayısı */
+function delete_supporter(array $sup): int
+{
+    $kept = delete_independent_people((int) $sup['id']);
+    $pids = supporter_person_ids((int) $sup['id']);
+    q('DELETE FROM supporters WHERE id = ?', [$sup['id']]);
+    release_supporter_stance($pids);
+    return $kept;
+}
+
+/**
+ * Firmaya bağlı olmayan ismi, aktif listeye "Bağımsız" grubunda ayrı kişi olarak ekler ve bağlar.
+ * Onay ekranında GELDİ işaretlenebilir, Bizimkiler'de sayılır. Aynı isimde bağımsız kayıt varsa onu kullanır.
+ */
+function make_independent(array $sup): int
+{
+    $pid = q('SELECT id FROM people WHERE event_id = ? AND batch_id IS NULL AND group_name = ? AND search_key = ?',
+        [$sup['event_id'], INDEPENDENT_GROUP, search_key($sup['name'])])->fetchColumn();
+    if (!$pid) {
+        $pid = insert_person((int) $sup['event_id'], null, [
+            'full_name'  => $sup['name'],
+            'group_name' => INDEPENDENT_GROUP,
+            'stance'     => supporter_stance(),
+            'extra'      => ['kaynak' => 'Bizimkiler — firmasız'],
+        ]);
+    }
+    q('INSERT IGNORE INTO supporter_people (supporter_id, person_id) VALUES (?, ?)', [$sup['id'], $pid]);
+    q("UPDATE supporters SET status = 'matched' WHERE id = ?", [$sup['id']]);
+    apply_supporter_stance([(int) $pid]);
+    return (int) $pid;
 }
 
 /** Kayıt bu etkinliğe mi ait (başka etkinliğin id'siyle oynanmasın)? */
@@ -213,7 +275,9 @@ function unlink_supporter(array $sup, int $personId): void
 {
     q('DELETE FROM supporter_people WHERE supporter_id = ? AND person_id = ?', [$sup['id'], $personId]);
     if (!supporter_person_ids((int) $sup['id'])) {
-        q("UPDATE supporters SET status = 'none' WHERE id = ?", [$sup['id']]);
+        // elle açılmış kaydın bağı kalmadı: kayıt anlamsız, sil; listedeki isim "Bulunamadı"ya döner
+        q("DELETE FROM supporters WHERE id = ? AND source = 'manual'", [$sup['id']]);
+        q("UPDATE supporters SET status = 'none' WHERE id = ? AND source = 'list'", [$sup['id']]);
     }
     release_supporter_stance([$personId]);
 }
@@ -233,9 +297,9 @@ function reject_supporter(array $sup): void
  */
 function list_supporters(int $eventId, string $filter = ''): array
 {
-    $rows = q('SELECT id, name, status FROM supporters WHERE event_id = ? ORDER BY name', [$eventId])->fetchAll();
+    $rows = q('SELECT id, name, status, source FROM supporters WHERE event_id = ? ORDER BY name', [$eventId])->fetchAll();
     $people = [];
-    foreach (q("SELECT sp.supporter_id, p.id, p.full_name, p.authority, p.region, p.ref_no, p.attended_at, u.full_name AS attended_by_name
+    foreach (q("SELECT sp.supporter_id, p.id, p.full_name, p.authority, p.region, p.ref_no, p.group_name, p.batch_id, p.attended_at, u.full_name AS attended_by_name
                 FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
                 JOIN people p ON p.id = sp.person_id LEFT JOIN users u ON u.id = p.attended_by
                 WHERE s.event_id = ? ORDER BY p.full_name", [$eventId])->fetchAll() as $p) {
