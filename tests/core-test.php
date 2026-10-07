@@ -185,6 +185,9 @@ check('bağ kaldırılınca "Bizimle" geri alınır', $stanceOf($p2) === null &&
 $none = q("SELECT * FROM supporters WHERE event_id = ? AND status = 'none'", [$testEvent])->fetch();
 check('başka etkinliğin kişisi bağlanamaz', !link_supporter($none, (int) q('SELECT id FROM people WHERE event_id <> ? LIMIT 1', [$testEvent])->fetchColumn() ?: 0));
 check('elle bağlama', link_supporter($none, $p5) && $stanceOf($p5) === 'bizimle');
+q('UPDATE people SET stance = NULL WHERE id IN (?, ?, ?)', [$b1, $b2, $b3]);
+check('elle bağlama firmanın tüm şubelerini bağlar', link_supporter($none, $b2)
+    && $stanceOf($b1) === 'bizimle' && $stanceOf($b2) === 'bizimle' && $stanceOf($b3) === 'bizimle' && $stanceOf($b4) === null);
 q('UPDATE people SET stance = ? WHERE id = ?', ['bizimle', $p4]); // elle "Bizimle" (listeden bağımsız)
 clear_supporters($testEvent);
 check('liste silinince verdiği işaretler kalkar', $stanceOf($p1) === null && $stanceOf($p3) === null && $stanceOf($p5) === null);

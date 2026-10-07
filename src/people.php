@@ -377,6 +377,29 @@ function stance_from_text(mixed $text): ?string
 }
 
 /**
+ * Transaction İÇİNDE çağrılır: kişinin firma grubunun kapsamdaki TÜM satırlarını kilitler
+ * (sadece değişecekleri değil). Böylece aynı gruba eşzamanlı GELDİ / Geri al / Bizimle mi?
+ * istekleri sıraya girer, grup yarım kalmaz. Kişi kapsam dışıysa null.
+ * @return ?list<array{id:int, attended_at:?string, attended_by:?int, stance:?string, in_window:int}>
+ */
+function lock_group(array $user, int $personId): ?array
+{
+    [$scope, $params] = people_scope($user);
+    $key = q("SELECT p.firm_key FROM people p WHERE p.id = ? AND $scope", [$personId, ...$params])->fetchColumn();
+    if ($key === false) {
+        return null;
+    }
+    $window = (int) config('unmark_window_minutes', 5);
+    $rows = q(
+        "SELECT p.id, p.attended_at, p.attended_by, p.stance,
+                (p.attended_at >= UTC_TIMESTAMP() - INTERVAL $window MINUTE) AS in_window
+         FROM people p WHERE p.firm_key = ? AND $scope ORDER BY p.id FOR UPDATE",
+        [$key, ...$params]
+    )->fetchAll();
+    return $rows ?: null;
+}
+
+/**
  * Kişinin firma grubunun (kapsamdaki tüm kayıtlarının) "Bizimle mi?" değerini değiştirir.
  * @param ?string $value seçenek anahtarı ya da null (temizle)
  * @return array{ok:bool, status:int, error?:string, person?:array}
@@ -393,13 +416,14 @@ function set_stance(array $user, int $personId, ?string $value): array
     if ($event === null) {
         return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
     }
-    $members = find_group($user, $personId);
-    if (!$members) {
-        return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
-    }
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        $members = lock_group($user, $personId); // okuma transaction içinde, kilitli
+        if ($members === null) {
+            $pdo->rollBack();
+            return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
+        }
         foreach ($members as $m) {
             if ($m['stance'] === $value) {
                 continue;
@@ -456,18 +480,15 @@ function mark_person(array $user, int $personId): array
     if ($event === null) {
         return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
     }
-    [$scope, $params] = people_scope($user);
-
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        $key = q("SELECT p.firm_key FROM people p WHERE p.id = ? AND $scope", [$personId, ...$params])->fetchColumn();
-        if ($key === false) {
+        $rows = lock_group($user, $personId);
+        if ($rows === null) {
             $pdo->rollBack();
             return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
         }
-        $ids = q("SELECT p.id FROM people p WHERE p.firm_key = ? AND p.attended_at IS NULL AND $scope FOR UPDATE",
-            [$key, ...$params])->fetchAll(PDO::FETCH_COLUMN);
+        $ids = array_column(array_filter($rows, fn($r) => $r['attended_at'] === null), 'id');
         $done = 0;
         foreach ($ids as $id) {
             $st = q('UPDATE people SET attended_at = UTC_TIMESTAMP(), attended_by = ? WHERE id = ? AND attended_at IS NULL', [$user['id'], $id]);
@@ -507,24 +528,19 @@ function unmark_person(array $user, int $personId): array
     if ($event === null) {
         return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
     }
-    [$scope, $params] = people_scope($user);
-    $own = '';
-    $ownParams = [];
-    if (!can('unmark_any', $user)) {
-        $own = ' AND p.attended_by = ? AND p.attended_at >= UTC_TIMESTAMP() - INTERVAL ? MINUTE';
-        $ownParams = [$user['id'], (int) config('unmark_window_minutes', 5)];
-    }
+    $any = can('unmark_any', $user);
 
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        $key = q("SELECT p.firm_key FROM people p WHERE p.id = ? AND $scope", [$personId, ...$params])->fetchColumn();
-        if ($key === false) {
+        $rows = lock_group($user, $personId);
+        if ($rows === null) {
             $pdo->rollBack();
             return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
         }
-        $ids = q("SELECT p.id FROM people p WHERE p.firm_key = ? AND p.attended_at IS NOT NULL AND $scope$own FOR UPDATE",
-            [$key, ...$params, ...$ownParams])->fetchAll(PDO::FETCH_COLUMN);
+        // yönetici: tüm işaretliler; onaycı: kendi işaretledikleri ve süre içinde
+        $ids = array_column(array_filter($rows, fn($r) => $r['attended_at'] !== null
+            && ($any || ((int) $r['attended_by'] === $user['id'] && (int) $r['in_window'] === 1))), 'id');
         foreach ($ids as $id) {
             q('UPDATE people SET attended_at = NULL, attended_by = NULL WHERE id = ?', [$id]);
             q('INSERT INTO attendance_log (event_id, person_id, user_id, action, ip, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())',

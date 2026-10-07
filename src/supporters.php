@@ -192,14 +192,17 @@ function confirm_supporter(array $sup): void
     apply_supporter_stance(supporter_person_ids((int) $sup['id']));
 }
 
-/** Kişi bağla (elle seçim). Kişi aynı etkinlikte olmalı. */
+/** Kişi bağla (elle seçim): seçilen kaydın firma grubunun (şubeler) TÜMÜ bağlanır. Aynı etkinlikte olmalı. */
 function link_supporter(array $sup, int $personId): bool
 {
-    $ok = q('SELECT 1 FROM people WHERE id = ? AND event_id = ?', [$personId, $sup['event_id']])->fetchColumn();
-    if (!$ok) {
+    $key = q('SELECT firm_key FROM people WHERE id = ? AND event_id = ?', [$personId, $sup['event_id']])->fetchColumn();
+    if ($key === false) {
         return false;
     }
-    q('INSERT IGNORE INTO supporter_people (supporter_id, person_id) VALUES (?, ?)', [$sup['id'], $personId]);
+    $ids = q('SELECT id FROM people WHERE event_id = ? AND firm_key = ?', [$sup['event_id'], $key])->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($ids as $id) {
+        q('INSERT IGNORE INTO supporter_people (supporter_id, person_id) VALUES (?, ?)', [$sup['id'], $id]);
+    }
     q("UPDATE supporters SET status = 'matched' WHERE id = ?", [$sup['id']]);
     apply_supporter_stance(supporter_person_ids((int) $sup['id']));
     return true;
