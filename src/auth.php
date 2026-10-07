@@ -47,15 +47,17 @@ function start_session(): void
 /** Giriş yapmış kullanıcı (her istekte DB'den taze okunur; pasife alınan anında düşer). */
 function current_user(): ?array
 {
-    static $loaded = false, $user = null;
-    if ($loaded) {
-        return $user;
-    }
-    $loaded = true;
+    // Önbellek oturumdaki uid'ye bağlı: aynı istekte giriş yapılınca eski "kimse yok" sonucu dönmesin.
+    static $cachedUid = null, $user = null;
     $uid = $_SESSION['uid'] ?? null;
     if (!is_int($uid)) {
         return null;
     }
+    if ($cachedUid === $uid) {
+        return $user;
+    }
+    $cachedUid = $uid;
+    $user = null;
     $row = q('SELECT id, username, full_name, role, region, is_active FROM users WHERE id = ?', [$uid])->fetch();
     if (!$row || !(int) $row['is_active'] || !isset(ROLES[$row['role']])) {
         logout();

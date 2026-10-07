@@ -71,7 +71,7 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
                     <th class="num">Toplam</th>
                     <th class="num">Gelen</th>
                     <th class="num">Oran</th>
-                    <th>Grafik</th>
+                    <th class="col-bar">Grafik</th>
                 </tr>
             </thead>
             <tbody>
@@ -81,7 +81,7 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
                     <td class="num"><?= e($rb['total']) ?></td>
                     <td class="num"><?= e($rb['came']) ?></td>
                     <td class="num"><?= $rb['total'] ? round($rb['came'] / $rb['total'] * 100) : 0 ?>%</td>
-                    <td>
+                    <td class="col-bar">
                         <div class="progress" style="width: 100%; max-width: 200px;">
                             <span style="width: <?= $rb['total'] ? round($rb['came'] / $rb['total'] * 100) : 0 ?>%"></span>
                         </div>
@@ -107,7 +107,7 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
                     <th class="num">Toplam</th>
                     <th class="num">Gelen</th>
                     <th class="num">Oran</th>
-                    <th>Grafik</th>
+                    <th class="col-bar">Grafik</th>
                 </tr>
             </thead>
             <tbody>
@@ -117,7 +117,7 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
                     <td class="num"><?= e($gb['total']) ?></td>
                     <td class="num"><?= e($gb['came']) ?></td>
                     <td class="num"><?= $gb['total'] ? round($gb['came'] / $gb['total'] * 100) : 0 ?>%</td>
-                    <td>
+                    <td class="col-bar">
                         <div class="progress" style="width: 100%; max-width: 200px;">
                             <span style="width: <?= $gb['total'] ? round($gb['came'] / $gb['total'] * 100) : 0 ?>%"></span>
                         </div>

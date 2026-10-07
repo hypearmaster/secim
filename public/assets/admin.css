@@ -285,3 +285,7 @@ textarea.input {
         display: none;
     }
 }
+/* Telefonda grafik sütunu gizli (oran sütunu aynı bilgiyi veriyor), tablo yatay kaymasın */
+@media (max-width: 639px) {
+    .table .col-bar { display: none; }
+}

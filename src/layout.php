@@ -32,9 +32,9 @@ function render_header(string $title, string $active = '', array $extraCss = [])
 <meta name="robots" content="noindex, nofollow">
 <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 <title><?= e($title) ?> · <?= e($appName) ?></title>
-<link rel="stylesheet" href="<?= e(url('assets/app.css')) ?>">
+<link rel="stylesheet" href="<?= e(asset_url('app.css')) ?>">
 <?php foreach ($extraCss as $css): ?>
-<link rel="stylesheet" href="<?= e(url('assets/' . $css)) ?>">
+<link rel="stylesheet" href="<?= e(asset_url($css)) ?>">
 <?php endforeach; ?>
 </head>
 <body>
@@ -69,10 +69,17 @@ function render_header(string $title, string $active = '', array $extraCss = [])
 <?php
 }
 
+/** assets/ altındaki dosya + değişiklik tarihi: güncellemede telefonlar eski CSS/JS'i önbellekten kullanmasın. */
+function asset_url(string $file): string
+{
+    $path = APP_ROOT . '/public/assets/' . $file;
+    return url('assets/' . $file) . (is_file($path) ? '?v=' . filemtime($path) : '');
+}
+
 function render_footer(array $scripts = []): void
 {
     foreach ($scripts as $js) {
-        echo '<script src="' . e(url('assets/' . $js)) . '" defer></script>' . "\n";
+        echo '<script src="' . e(asset_url($js)) . '" defer></script>' . "\n";
     }
     echo "</body>\n</html>\n";
 }
