@@ -3,12 +3,75 @@ declare(strict_types=1);
 
 /*
  * Hediye dağıtım takibi: üye listesinden BAĞIMSIZ, sadece "ad" (+ opsiyonel not) içeren bir liste.
- * Sahada hediye verilince "VERDİK" işaretlenir. Bizimkiler/firma eşleşmesiyle ilgisi yok,
- * bölge kısıtı YOK (herkes tüm hediye listesini görür/işaretler). Her zaman aktif etkinliğe bağlı.
+ * Sahada hediye verilince "VERDİK" işaretlenir. Bölge, aynı etkinliğin kişi kayıtlarından
+ * kesin isim eşleşmesiyle alınır. Herkes tüm hediye listesini görür/işaretler.
  */
 
-const GIFT_SELECT = 'SELECT g.id, g.name, g.note, g.given_at, g.given_by, u.full_name AS given_by_name
+const GIFT_SELECT = 'SELECT g.id, g.name, g.note, g.region, g.given_at, g.given_by, u.full_name AS given_by_name
     FROM gifts g LEFT JOIN users u ON u.id = g.given_by';
+
+/** Tam isim/unvan ve onaylı Bizimkiler bağlantıları; farklı bölgeler belirsiz kalır. */
+function gift_region_index(int $eventId): array
+{
+    $rows = q('SELECT full_name AS name, authority, region FROM people WHERE event_id = ?', [$eventId])->fetchAll();
+    $linked = q("SELECT s.name, NULL AS authority, p.region FROM supporters s
+        JOIN supporter_people sp ON sp.supporter_id = s.id JOIN people p ON p.id = sp.person_id
+        WHERE s.event_id = ? AND p.event_id = ? AND s.status = 'matched'", [$eventId, $eventId])->fetchAll();
+    $index = [];
+    foreach (array_merge($rows, $linked) as $row) {
+        foreach (array_merge([$row['name']], explode(',', (string) $row['authority'])) as $name) {
+            $key = search_key($name);
+            if ($key !== '') $index[$key][] = $row['region'];
+        }
+    }
+    return $index;
+}
+
+function gift_matched_region(string $name, array $index): ?string
+{
+    $regions = array_unique($index[search_key($name)] ?? []);
+    return count($regions) === 1 ? (array_values($regions)[0] ?: null) : null;
+}
+
+/** Elle seçim için yalnızca bu etkinliğin onay listesindeki bölgeler. */
+function gift_regions(int $eventId): array
+{
+    return q("SELECT DISTINCT region FROM people WHERE event_id = ? AND region IS NOT NULL AND region <> '' ORDER BY region",
+        [$eventId])->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/** Mevcut işaretleri ve elle seçilmiş bölgeleri koruyarak belirsizleri eşleştir. */
+function sync_gift_regions(int $eventId): int
+{
+    $index = gift_region_index($eventId);
+    $updated = 0;
+    foreach (q('SELECT id, name FROM gifts WHERE event_id = ? AND region IS NULL', [$eventId])->fetchAll() as $gift) {
+        $region = gift_matched_region($gift['name'], $index);
+        if ($region !== null) {
+            $updated += q('UPDATE gifts SET region = ? WHERE id = ? AND event_id = ? AND region IS NULL',
+                [$region, $gift['id'], $eventId])->rowCount();
+        }
+    }
+    return $updated;
+}
+
+function set_gift_region(array $user, int $id, string $region, int $expectedEventId): array
+{
+    if (!can('gift_mark', $user)) return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
+    $event = active_event();
+    if (!$event || $event['id'] !== $expectedEventId) {
+        return ['ok' => false, 'status' => 409, 'error' => 'Aktif liste değişti, sayfayı yenileyin.'];
+    }
+    if (!in_array($region, gift_regions($event['id']), true)) {
+        return ['ok' => false, 'status' => 422, 'error' => 'Onay listesinden bir bölge seçin.'];
+    }
+    $row = q(GIFT_SELECT . ' WHERE g.id = ? AND g.event_id = ?', [$id, $event['id']])->fetch();
+    if (!$row) return ['ok' => false, 'status' => 404, 'error' => 'Hediye kaydı bulunamadı.'];
+    q('UPDATE gifts SET region = ? WHERE id = ? AND event_id = ?', [$region, $id, $event['id']]);
+    audit('gift_region', $row['name'], ['bölge' => $region], $user['id']);
+    $row['region'] = $region;
+    return ['ok' => true, 'status' => 200, 'gift' => gift_view($row)];
+}
 
 /** API/arayüz için tek tip hediye gösterimi. */
 function gift_view(array $row): array
@@ -18,6 +81,7 @@ function gift_view(array $row): array
         'id'            => (int) $row['id'],
         'name'          => $row['name'],
         'note'          => $row['note'],
+        'region'        => $row['region'],
         'given'         => $given,
         'given_time'    => fmt_time($row['given_at']),
         'given_by_name' => $row['given_by_name'],
@@ -37,6 +101,12 @@ function search_gifts(array $f, int $limit = 50, int $offset = 0): array
     }
     $where = 'g.event_id = ?';
     $params = [$event['id']];
+    if (($f['region'] ?? '') === NONE_VALUE) {
+        $where .= ' AND g.region IS NULL';
+    } elseif (($f['region'] ?? '') !== '') {
+        $where .= ' AND g.region = ?';
+        $params[] = $f['region'];
+    }
 
     $words = array_slice(array_filter(explode(' ', search_key((string) ($f['q'] ?? '')))), 0, 6);
     foreach ($words as $w) {
@@ -125,8 +195,9 @@ function add_gift(array $user, string $name, ?string $note = null): array
     }
     $note = clean_text($note, 190);
     // Not da aranabilsin (ekranda "İsim ya da not ara"): search_key'e notu da kat
-    q('INSERT INTO gifts (event_id, name, search_key, note, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
-        [$event['id'], $clean, search_key($clean, $note), $note]);
+    $region = gift_matched_region($clean, gift_region_index($event['id']));
+    q('INSERT INTO gifts (event_id, name, search_key, note, region, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+        [$event['id'], $clean, search_key($clean, $note), $note, $region]);
     $id = (int) db()->lastInsertId();
     audit('gift_add', $clean, $note !== null ? ['not' => $note] : [], $user['id']);
     $row = q(GIFT_SELECT . ' WHERE g.id = ?', [$id])->fetch();
@@ -140,6 +211,7 @@ function add_gift(array $user, string $name, ?string $note = null): array
  */
 function import_gifts(int $eventId, array $names, int $userId): int
 {
+    $regions = gift_region_index($eventId);
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -160,8 +232,8 @@ function import_gifts(int $eventId, array $names, int $userId): int
                 continue;
             }
             $seen[$key] = true;
-            q('INSERT INTO gifts (event_id, name, search_key, batch_id, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
-                [$eventId, $clean, $key, $batchId]);
+            q('INSERT INTO gifts (event_id, name, search_key, batch_id, region, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+                [$eventId, $clean, $key, $batchId, gift_matched_region($clean, $regions)]);
             $added++;
         }
         q('UPDATE import_batches SET row_count = ? WHERE id = ?', [$added, $batchId]);

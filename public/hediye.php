@@ -6,11 +6,14 @@ require APP_ROOT . '/src/gifts.php';
 // Hediye dağıtım ekranı: ara, bul, VERDİK. Bölge kısıtı yok (liste ayrı, bölgesiz).
 $user = require_perm('gift_mark');
 $event = active_event();
+if ($event) sync_gift_regions($event['id']);
 
 $config = [
     'api'   => url('api/gift.php'),
     'login' => url('index.php'),
     'stats' => gift_stats(),
+    'regions' => $event ? gift_regions($event['id']) : [],
+    'eventId' => $event['id'] ?? null,
 ];
 
 render_header('Hediye', 'hediye', ['hediye.css']);
@@ -35,6 +38,15 @@ render_header('Hediye', 'hediye', ['hediye.css']);
     </div>
 
     <div class="gift-head-row">
+      <label>Bölge
+        <select id="gift-region" class="input">
+          <option value="">Tüm bölgeler</option>
+          <option value="<?= e(NONE_VALUE) ?>">Bölgesi belirsiz</option>
+          <?php foreach ($config['regions'] as $region): ?>
+          <option value="<?= e($region) ?>"><?= e($region) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
       <div class="seg" role="group" aria-label="Durum">
         <button type="button" class="seg-btn is-active" data-status="all" aria-pressed="true">Tümü</button>
         <button type="button" class="seg-btn" data-status="pending" aria-pressed="false">Verilmedi</button>

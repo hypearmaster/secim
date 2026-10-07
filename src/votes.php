@@ -11,7 +11,12 @@ declare(strict_types=1);
 function vote_options(): array
 {
     $out = [];
-    foreach ((array) config('vote_options', []) as $key => $opt) {
+    // Özellikten önce kurulmuş config.php dosyalarında da sayaç kullanılabilsin.
+    $defaults = [
+        'mavi' => ['Mavi', '#1d4ed8'],
+        'kirmizi' => ['Kırmızı', '#dc2626'],
+    ];
+    foreach ((array) config('vote_options', $defaults) as $key => $opt) {
         if (is_string($key) && is_array($opt) && isset($opt[0], $opt[1])) {
             $out[$key] = ['label' => (string) $opt[0], 'color' => (string) $opt[1]];
         }
@@ -82,6 +87,23 @@ function vote_active_event(?int $expectedEventId): array
 }
 
 /**
+ * Transaction İÇİNDE çağrılır: etkinlik hâlâ var ve AKTİF mi? Satırı kilitler, böylece
+ * tam yazarken activate_event() araya girip oyu eski listeye yazamaz (TOCTOU kapatılır).
+ */
+function vote_lock_active(int $eventId): bool
+{
+    return (bool) q('SELECT 1 FROM events WHERE id = ? AND is_active = 1 FOR UPDATE', [$eventId])->fetchColumn();
+}
+
+/** Kilit altında etkinlik artık aktif değilse dönülecek yanıt (istemci yeniler). */
+function vote_changed_response(): array
+{
+    $ev = active_event(true); // taze oku (statik önbelleği tazele)
+    return ['ok' => false, 'status' => 409, 'event_changed' => true, 'event_id' => $ev['id'] ?? null,
+            'error' => 'Aktif etkinlik değişti, sayfayı yenileyin.'];
+}
+
+/**
  * Bir seçeneğe +1. @return array{ok:bool, status:int, error?:string, tallies?:array}
  */
 function vote_add(array $user, string $optionKey, ?int $expectedEventId = null): array
@@ -99,6 +121,10 @@ function vote_add(array $user, string $optionKey, ?int $expectedEventId = null):
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        if (!vote_lock_active($event['id'])) { // kilit altında yeniden doğrula
+            $pdo->rollBack();
+            return vote_changed_response();
+        }
         q('UPDATE events SET vote_ver = vote_ver + 1 WHERE id = ?', [$event['id']]); // sürüm, sayımla aynı transaction'da
         q('INSERT INTO vote_log (event_id, option_key, user_id, ip, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
             [$event['id'], $optionKey, $user['id'], client_ip_bin()]);
@@ -130,6 +156,10 @@ function vote_undo(array $user, ?string $optionKey = null, ?int $expectedEventId
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        if (!vote_lock_active($event['id'])) {
+            $pdo->rollBack();
+            return vote_changed_response();
+        }
         $sql = 'SELECT id, option_key FROM vote_log WHERE event_id = ?';
         $params = [$event['id']];
         if ($optionKey !== null) {
@@ -171,6 +201,10 @@ function vote_reset(array $user, ?int $expectedEventId = null): array
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        if (!vote_lock_active($event['id'])) {
+            $pdo->rollBack();
+            return vote_changed_response();
+        }
         $before = vote_tallies($event['id']); // kırılım (silmeden önce, bilgi amaçlı)
         $deleted = q('DELETE FROM vote_log WHERE event_id = ?', [$event['id']])->rowCount();
         q('UPDATE events SET vote_ver = vote_ver + 1 WHERE id = ?', [$event['id']]);

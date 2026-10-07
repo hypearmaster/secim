@@ -94,6 +94,7 @@ render_header('Hediye listesi', 'gifts', ['admin.css']);
         <div class="sup-row<?= $g['given'] ? ' is-came' : '' ?>">
           <div class="sup-main">
             <strong><?= e($g['name']) ?></strong>
+            <span class="muted"> · <?= e($g['region'] ?? 'Bölgesi belirsiz') ?></span>
             <?php if ($g['note']): ?><span class="muted"> · <?= e($g['note']) ?></span><?php endif; ?>
           </div>
           <?php if ($g['given']): ?><span class="badge badge-success">✓ Verildi<?= $g['given_time'] ? ' ' . e($g['given_time']) : '' ?></span><?php endif; ?>

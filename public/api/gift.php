@@ -14,6 +14,7 @@ if (!is_post()) {
     $filters = [
         'q'      => mb_substr((string) ($_GET['q'] ?? ''), 0, 100),
         'status' => in_array($_GET['status'] ?? '', ['given', 'pending'], true) ? $_GET['status'] : 'all',
+        'region' => mb_substr((string) ($_GET['region'] ?? ''), 0, 120),
     ];
     $result = search_gifts($filters, $perPage, ($page - 1) * $perPage);
     json_response([
@@ -36,6 +37,7 @@ $result = match ($action) {
     'mark'   => mark_gift($user, $id, true),
     'unmark' => mark_gift($user, $id, false),
     'add'    => add_gift($user, $name, $note),
+    'region' => set_gift_region($user, $id, is_string($_POST['region'] ?? null) ? $_POST['region'] : '', (int) ($_POST['event_id'] ?? 0)),
     default  => ['ok' => false, 'status' => 422, 'error' => 'Geçersiz işlem.'],
 };
 $status = $result['status'];

@@ -37,6 +37,8 @@ function render_header(string $title, string $active = '', array $extraCss = [])
 <meta name="robots" content="noindex, nofollow">
 <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 <title><?= e($title) ?> · <?= e($appName) ?></title>
+<link rel="icon" type="image/jpeg" href="<?= e(asset_url('favicon.jpg')) ?>">
+<link rel="apple-touch-icon" href="<?= e(asset_url('favicon.jpg')) ?>">
 <link rel="stylesheet" href="<?= e(asset_url('app.css')) ?>">
 <?php foreach ($extraCss as $css): ?>
 <link rel="stylesheet" href="<?= e(asset_url($css)) ?>">

@@ -74,6 +74,10 @@ $has = fn(string $table, string $col) => (bool) q(
     [$table, $col]
 )->fetchColumn();
 $migrated = 0;
+if (!$has('gifts', 'region')) {
+    db()->exec('ALTER TABLE gifts ADD COLUMN region VARCHAR(120) NULL AFTER note');
+    echo "  hediyeler: bölge sütunu eklendi\n";
+}
 if (!$has('people', 'firm_key')) {
     db()->exec("ALTER TABLE people ADD COLUMN firm_key VARCHAR(255) NOT NULL DEFAULT '' AFTER search_key, ADD KEY ix_people_event_firm (event_id, firm_key)");
     $migrated++;

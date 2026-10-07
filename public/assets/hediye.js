@@ -12,6 +12,7 @@
 
   var els = {
     q: document.getElementById('q'),
+    region: document.getElementById('gift-region'),
     list: document.getElementById('list'),
     empty: document.getElementById('empty'),
     more: document.getElementById('more'),
@@ -29,7 +30,7 @@
     addSave: document.getElementById('gift-add-save')
   };
 
-  var state = { q: '', status: 'all', page: 1 };
+  var state = { q: '', status: 'all', region: '', page: 1 };
   var controller = null;
   var lastLoad = 0;
   var debounce = null;
@@ -79,6 +80,33 @@
     var main = el('div', 'g-main');
     main.appendChild(el('h3', 'g-name', g.name));
     if (g.note) main.appendChild(el('div', 'g-note', g.note));
+    var regionLabel = el('label', 'g-region', 'Bölge');
+    var regionSelect = el('select', 'input');
+    regionSelect.setAttribute('aria-label', g.name + ' bölgesi');
+    var unknown = el('option', null, 'Bölgesi belirsiz');
+    unknown.value = '';
+    unknown.disabled = true;
+    regionSelect.appendChild(unknown);
+    var regions = (cfg.regions || []).slice();
+    if (g.region && regions.indexOf(g.region) === -1) regions.push(g.region);
+    regions.forEach(function (region) {
+      var option = el('option', null, region);
+      option.value = region;
+      regionSelect.appendChild(option);
+    });
+    regionSelect.value = g.region || '';
+    regionSelect.addEventListener('change', function () {
+      regionSelect.disabled = true;
+      post({ action: 'region', id: g.id, region: regionSelect.value, event_id: cfg.eventId })
+        .then(function (res) {
+          if (!res.ok) { toast(res.error || 'Bölge kaydedilemedi', 'error'); regionSelect.value = g.region || ''; }
+          else { toast('Bölge kaydedildi', 'success'); load(true); }
+        })
+        .catch(function (err) { if (err.message !== 'auth') toast('Bağlantı yok, tekrar deneyin', 'error'); regionSelect.value = g.region || ''; })
+        .finally(function () { regionSelect.disabled = false; });
+    });
+    regionLabel.appendChild(regionSelect);
+    main.appendChild(regionLabel);
     c.appendChild(main);
 
     var act = el('div', 'g-action');
@@ -178,7 +206,7 @@
     if (reset) state.page = 1;
     if (controller) controller.abort();
     controller = new AbortController();
-    var params = new URLSearchParams({ q: state.q, status: state.status, page: state.page });
+    var params = new URLSearchParams({ q: state.q, status: state.status, region: state.region, page: state.page });
     root.classList.add('is-loading');
     els.more.disabled = true;
 
@@ -211,6 +239,7 @@
       });
   }
 
+  els.region.addEventListener('change', function () { state.region = els.region.value; load(true); });
   els.q.addEventListener('input', function () {
     clearTimeout(debounce);
     debounce = setTimeout(function () {

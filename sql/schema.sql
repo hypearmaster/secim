@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS gifts (
   name        VARCHAR(160) NOT NULL,
   search_key  VARCHAR(255) NOT NULL DEFAULT '',
   note        VARCHAR(190) NULL COMMENT 'opsiyonel: firma / açıklama',
+  region      VARCHAR(120) NULL,
   given_at    DATETIME     NULL,
   given_by    INT UNSIGNED NULL,
   batch_id    INT UNSIGNED NULL,
