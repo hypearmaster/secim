@@ -36,19 +36,32 @@ const IMPORT_FIELDS = [
 ];
 
 /** Başlık (search_key ile normalize) -> alan. Önce kişisel veri kontrol edilir. */
+/**
+ * Kişisel veri sütunu mu? Bunlar KİLİTLİ: eşleme formundan bile alınamaz (sunucu zorlar),
+ * önizlemede gösterilmez. "tc" sadece tam kelime (başka kelimelerin içinde geçebilir).
+ */
+function is_personal_header(string $header): bool
+{
+    $k = search_key($header);
+    foreach (['tel', 'gsm', 'telefon', 'cep', 'mail', 'eposta', 'e posta', 'adres', 'ortak', 'tc', 'kimlik', 'dogum', 'iban'] as $p) {
+        if ($k === $p || str_contains(' ' . $k . ' ', ' ' . $p . ' ') || ($p !== 'tc' && str_contains($k, $p))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function guess_field(string $header): string
 {
     $k = search_key($header);
-    if ($k === '') {
+    if ($k === '' || is_personal_header($header)) {
         return 'ignore';
     }
-    foreach (['tel', 'gsm', 'telefon', 'cep', 'mail', 'eposta', 'e posta', 'adres', 'ortak', 'tc', 'kimlik', 'nace', 'temsil', 'dogum', 'iban'] as $p) {
-        if ($k === $p || str_starts_with($k, $p . ' ') || str_contains(' ' . $k . ' ', ' ' . $p . ' ') || ($p !== 'tc' && str_contains($k, $p))) {
-            return 'ignore';
-        }
+    if (in_array($k, ['nace', 'temsil', 'temsil sekli'], true)) {
+        return 'ignore'; // kişisel değil ama gereksiz; admin isterse "Ek bilgi" seçebilir
     }
     $map = [
-        'full_name'  => ['unvan', 'unvani', 'ad soyad', 'adi soyadi', 'adsoyad', 'isim', 'isim soyisim', 'ad soyadi', 'firma', 'firma adi', 'uye', 'uye adi'],
+        'full_name'  => ['unvan', 'unvani', 'firma unvani', 'ticaret unvani', 'ad soyad', 'adi soyadi', 'adsoyad', 'isim', 'isim soyisim', 'ad soyadi', 'firma', 'firma adi', 'uye', 'uye adi'],
         'first_name' => ['ad', 'adi', 'isim'],
         'last_name'  => ['soyad', 'soyadi', 'soyisim'],
         'authority'  => ['yetkili', 'yetkililer', 'yetkili kisi', 'yetkili kisiler', 'yetki'],
@@ -77,6 +90,75 @@ function sheet_title_to_group(string $title): ?string
         return null; // varsayılan sayfa adı grup değildir
     }
     return tr_upper(mb_substr($t, 0, 1)) . mb_substr($t, 1);
+}
+
+/**
+ * Yüklenen dosyanın ilk kontrolü (import ve Bizimkiler ortak). Hata mesajı ya da null.
+ * Uzantı + gerçek içerik türü (finfo) + boyut.
+ */
+function upload_problem(?array $f): ?string
+{
+    $err = $f['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE || ($f['size'] ?? 0) > IMPORT_MAX_BYTES) {
+        return 'Dosya çok büyük (en fazla 5 MB).';
+    }
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+        return 'Dosya yüklenemedi, tekrar deneyin.';
+    }
+    $ext = upload_ext($f);
+    $okMime = [
+        'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip', 'application/octet-stream'],
+        'csv'  => ['text/plain', 'text/csv', 'application/csv', 'text/x-csv', 'application/vnd.ms-excel'],
+    ];
+    if (!isset($okMime[$ext])) {
+        return 'Sadece .xlsx ya da .csv yükleyin. Eski .xls dosyasını Excel’de "Farklı kaydet → .xlsx" yapın.';
+    }
+    if (!in_array((new finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name']), $okMime[$ext], true)) {
+        return 'Dosyanın içeriği uzantısıyla uyuşmuyor.';
+    }
+    return null;
+}
+
+function upload_ext(?array $f): string
+{
+    return strtolower(pathinfo((string) ($f['name'] ?? ''), PATHINFO_EXTENSION));
+}
+
+/**
+ * Zip-bomb / dev tablo koruması: xlsx AÇILMADAN önce sıkıştırılmamış boyut, oran ve
+ * satır sayısı kontrol edilir (paylaşımlı hostun belleği bitmesin).
+ * @throws RuntimeException
+ */
+function xlsx_guard(string $path): void
+{
+    $zip = new ZipArchive();
+    if ($zip->open($path, ZipArchive::RDONLY) !== true) {
+        throw new RuntimeException('Dosya okunamadı. Geçerli bir .xlsx olduğundan emin olun.');
+    }
+    $total = 0;
+    try {
+        if ($zip->numFiles > 2000) {
+            throw new RuntimeException('Dosya yapısı beklenmedik derecede büyük.');
+        }
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $st = $zip->statIndex($i);
+            $total += $st['size'];
+            $ratio = $st['comp_size'] > 0 ? $st['size'] / $st['comp_size'] : 0;
+            if ($total > 60 * 1024 * 1024 || ($st['size'] > 5 * 1024 * 1024 && $ratio > 100)) {
+                throw new RuntimeException('Dosya açıldığında çok büyük oluyor; listeyi bölün.');
+            }
+        }
+    } finally {
+        $zip->close();
+    }
+    try {
+        $info = IOFactory::createReader('Xlsx')->listWorksheetInfo($path)[0] ?? null;
+    } catch (Throwable $e) {
+        throw new RuntimeException('Dosya okunamadı. Geçerli bir .xlsx olduğundan emin olun.');
+    }
+    if ($info && $info['totalRows'] > IMPORT_MAX_ROWS + 20) {
+        throw new RuntimeException('Dosyada ' . $info['totalRows'] . ' satır var; en fazla ' . IMPORT_MAX_ROWS . ' satır yüklenebilir. Listeyi bölün.');
+    }
 }
 
 /** Hücre -> metin. Formülde Excel'in kaydettiği sonucu kullanır, motorla HESAPLAMAZ. */
@@ -113,12 +195,15 @@ function read_sheet(string $path, string $ext): array
             $reader->setFallbackEncoding('CP1254'); // Türkçe Excel'in CSV'si çoğu zaman Windows-1254
             $reader->setDelimiter(csv_delimiter($path));
         } else {
+            xlsx_guard($path);
             $reader = IOFactory::createReader('Xlsx'); // tip AÇIKÇA seçilir, içerikten tahmin yok
             $names = $reader->listWorksheetNames($path);
             $reader->setLoadSheetsOnly([$names[0]]);
         }
         $reader->setReadDataOnly(true);
         $book = $reader->load($path);
+    } catch (RuntimeException $e) {
+        throw $e; // xlsx_guard mesajı kullanıcıya aynen
     } catch (Throwable $e) {
         throw new RuntimeException('Dosya okunamadı. Geçerli bir .xlsx ya da .csv olduğundan emin olun.');
     }

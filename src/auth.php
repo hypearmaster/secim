@@ -119,12 +119,15 @@ function attempt_login(string $username, string $password): string
     $username = mb_substr(trim($username), 0, 64);
     $ip = client_ip_bin();
 
+    // Önce denemeyi YAZ, sonra say: paralel istekler "say → yaz" arasındaki boşluktan
+    // limiti aşamaz (her istek kendi satırını görür). Başarılı girişte satırlar silinir.
+    q('INSERT INTO login_attempts (username, ip, created_at) VALUES (?, ?, UTC_TIMESTAMP())', [$username, $ip]);
     $window = 'created_at > UTC_TIMESTAMP() - INTERVAL 15 MINUTE';
     $byUser = (int) q("SELECT COUNT(*) FROM login_attempts WHERE username = ? AND $window", [$username])->fetchColumn();
     $byIp = $ip === null ? 0 : (int) q("SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND $window", [$ip])->fetchColumn();
-    if ($byUser >= (int) config('login_max_per_user', 5) || $byIp >= (int) config('login_max_per_ip', 30)) {
+    if ($byUser > (int) config('login_max_per_user', 5) || $byIp > (int) config('login_max_per_ip', 30)) {
         audit('login_locked', $username);
-        return 'locked';
+        return 'locked'; // şifre hiç denenmez
     }
 
     $row = q('SELECT id, password_hash, is_active FROM users WHERE username = ?', [$username])->fetch();
@@ -133,7 +136,6 @@ function attempt_login(string $username, string $password): string
     $valid = password_verify($password, $hash) && $row && (int) $row['is_active'] === 1;
 
     if (!$valid) {
-        q('INSERT INTO login_attempts (username, ip, created_at) VALUES (?, ?, UTC_TIMESTAMP())', [$username, $ip]);
         audit('login_failed', $username, $row && !(int) $row['is_active'] ? ['sebep' => 'pasif kullanıcı'] : []);
         return 'invalid';
     }

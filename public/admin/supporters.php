@@ -21,11 +21,9 @@ if (is_post()) {
 
     if ($action === 'upload') {
         $f = $_FILES['file'] ?? null;
-        $ext = strtolower(pathinfo((string) ($f['name'] ?? ''), PATHINFO_EXTENSION));
-        if (($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || ($f['size'] ?? 0) > IMPORT_MAX_BYTES) {
-            flash('error', 'Dosya yüklenemedi (en fazla 5 MB).');
-        } elseif (!in_array($ext, ['xlsx', 'csv'], true)) {
-            flash('error', 'Sadece .xlsx ya da .csv yükleyin.');
+        $ext = upload_ext($f);
+        if ($problem = upload_problem($f)) {
+            flash('error', $problem);
         } else {
             try {
                 // Geçici dosya PHP'nin kendi tmp'sinde kalır; tek adımda okunur, saklanmaz

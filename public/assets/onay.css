@@ -54,6 +54,16 @@
 }
 .p-card.is-came { background: var(--success-soft); border-color: #9fd8b1; }
 .p-card.is-came .p-tags .badge { background: var(--surface); border: 1px solid #9fd8b1; }
+/* Bizimle: mavi zemin; hem bizimle hem geldi ise yeşil zemin + mavi sol şerit */
+.p-card.is-bizimle { background: var(--bizimle-soft); border-color: var(--bizimle-border); }
+.p-card.is-bizimle .p-tags .badge { background: var(--surface); border-color: var(--bizimle-border); }
+.p-card.is-came.is-bizimle { background: var(--success-soft); border-color: #9fd8b1; box-shadow: inset 5px 0 0 var(--bizimle), var(--shadow); }
+/* Aynı firmanın şubeleri */
+.p-firms { font-size: .9rem; color: var(--muted); margin-bottom: 8px; }
+.p-firms summary { cursor: pointer; overflow-wrap: anywhere; line-height: 1.35; }
+.p-firms .p-count { color: var(--text); font-weight: 600; white-space: nowrap; }
+.p-firms ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+.p-partial { width: 100%; font-size: .85rem; font-weight: 600; color: var(--warning); }
 .p-name { font-size: 1.05rem; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
 .p-firm { font-size: .9rem; color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; line-height: 1.35; }
 .p-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

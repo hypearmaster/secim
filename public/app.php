@@ -19,6 +19,7 @@ $config = [
     'api'       => ['search' => url('api/search.php'), 'mark' => url('api/mark.php'), 'stance' => url('api/stance.php')],
     'login'     => url('index.php'),
     'canStance' => $canStance,
+    'supporterStance' => $canStance ? (string) config('supporter_stance', 'bizimle') : null, // mavi zemin
     'stances'   => $stances,
     'stats'     => scope_stats($user),
 ];

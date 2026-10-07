@@ -16,6 +16,9 @@
   --danger-soft: #fde4e4;
   --warning: #a15c07;
   --warning-soft: #fdf0d5;
+  --bizimle: #1d4ed8;        /* "Bizimle" olanlar: mavi */
+  --bizimle-soft: #e3ecff;
+  --bizimle-border: #a9c2f5;
   --topbar: #0f172a;
   --radius: 12px;
   --radius-sm: 8px;
@@ -133,3 +136,7 @@ textarea.input { min-height: 96px; }
 
 .empty { text-align: center; color: var(--muted); padding: 32px 16px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+
+/* "Bizimle" satırı (Kayıtlar, Panel tabloları) */
+.table tr.row-bizimle td { background: var(--bizimle-soft); }
+.table tr.row-bizimle td:first-child { box-shadow: inset 4px 0 0 var(--bizimle); }

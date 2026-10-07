@@ -67,6 +67,23 @@ echo '  ' . implode(', ', $tables) . "\n";
 // Buradan sonrası normal uygulama fonksiyonlarıyla
 require "$root/src/bootstrap.php";
 
+// 4b) göçler: CREATE TABLE IF NOT EXISTS eski tabloya yeni sütun eklemez
+step('güncellemeler');
+$has = fn(string $table, string $col) => (bool) q(
+    'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+    [$table, $col]
+)->fetchColumn();
+$migrated = 0;
+if (!$has('people', 'firm_key')) {
+    db()->exec("ALTER TABLE people ADD COLUMN firm_key VARCHAR(255) NOT NULL DEFAULT '' AFTER search_key, ADD KEY ix_people_event_firm (event_id, firm_key)");
+    $migrated++;
+}
+$empty = q("SELECT id, full_name, authority, ref_no FROM people WHERE firm_key = ''")->fetchAll();
+foreach ($empty as $p) {
+    q('UPDATE people SET firm_key = ? WHERE id = ?', [firm_key($p['full_name'], $p['authority'], $p['ref_no']), $p['id']]);
+}
+echo $migrated || $empty ? '  firma gruplama: ' . count($empty) . " kayıt güncellendi\n" : "  güncel\n";
+
 function make_user(string $username, string $role, string $fullName, ?string $region = null): void
 {
     if (q('SELECT 1 FROM users WHERE username = ?', [$username])->fetchColumn()) {

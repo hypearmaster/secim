@@ -57,7 +57,7 @@ $total = (int) q("
 ", $params)->fetchColumn();
 
 $logs = q("
-    SELECT al.*, p.full_name AS person_name, p.region, u.username, u.full_name AS user_name, u.role AS user_role
+    SELECT al.*, p.full_name AS person_name, p.authority AS person_authority, p.region, p.stance AS person_stance, u.username, u.full_name AS user_name, u.role AS user_role
     FROM attendance_log al
     JOIN people p ON p.id = al.person_id
     JOIN users u ON u.id = al.user_id
@@ -70,6 +70,9 @@ $totalPages = max(1, (int) ceil($total / $perPage));
 
 $usersForFilter = q('SELECT id, username, full_name FROM users WHERE is_active = 1 ORDER BY full_name')->fetchAll();
 $regionsForFilter = q("SELECT DISTINCT region FROM people WHERE region IS NOT NULL AND region <> '' ORDER BY region")->fetchAll(PDO::FETCH_COLUMN);
+
+// "Bizimle" satırları mavi (sadece bu bilgiyi görme yetkisi olana)
+$bizimle = can('stance', $user) ? (string) config('supporter_stance', 'bizimle') : null;
 
 $baseQuery = $_GET;
 unset($baseQuery['page']);
@@ -136,7 +139,7 @@ render_header('İşlem Kayıtları', 'log', ['admin.css']);
                 <tr>
                     <th>Saat</th>
                     <th>İşlem</th>
-                    <th>Unvan</th>
+                    <th>Ad Soyad / Firma</th>
                     <th>İlçe</th>
                     <th>Kullanıcı</th>
                     <?php if ($user['role'] === 'admin'): ?>
@@ -146,7 +149,7 @@ render_header('İşlem Kayıtları', 'log', ['admin.css']);
             </thead>
             <tbody>
             <?php foreach ($logs as $log): ?>
-                <tr>
+                <tr<?= $bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '' ?>>
                     <td><?= e(fmt_datetime($log['created_at'])) ?></td>
                     <td>
                         <?php if ($log['action'] === 'stance'): ?>
@@ -159,7 +162,7 @@ render_header('İşlem Kayıtları', 'log', ['admin.css']);
                             </span>
                         <?php endif; ?>
                     </td>
-                    <td><?= e($log['person_name']) ?></td>
+                    <td><?= e($log['person_authority'] ?: $log['person_name']) ?><?php if ($log['person_authority']): ?><div class="muted" style="font-size:.85rem"><?= e($log['person_name']) ?></div><?php endif; ?></td>
                     <td><?= e($log['region'] ?? '—') ?></td>
                     <td><?= e($log['user_name']) ?> <span class="badge badge-role"><?= e(ROLES[$log['user_role']]) ?></span></td>
                     <?php if ($user['role'] === 'admin'): ?>

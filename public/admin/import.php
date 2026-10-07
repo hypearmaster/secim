@@ -40,21 +40,9 @@ if (is_post()) {
     if ($action === 'upload') {
         drop_import($dir);
         $f = $_FILES['file'] ?? null;
-        $err = $f['error'] ?? UPLOAD_ERR_NO_FILE;
-        $ext = strtolower(pathinfo((string) ($f['name'] ?? ''), PATHINFO_EXTENSION));
-        $mime = $err === UPLOAD_ERR_OK ? (new finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name']) : '';
-        $okMime = [
-            'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip', 'application/octet-stream'],
-            'csv'  => ['text/plain', 'text/csv', 'application/csv', 'text/x-csv', 'application/vnd.ms-excel'],
-        ];
-        if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE || ($f['size'] ?? 0) > IMPORT_MAX_BYTES) {
-            flash('error', 'Dosya çok büyük (en fazla 5 MB).');
-        } elseif ($err !== UPLOAD_ERR_OK) {
-            flash('error', 'Dosya yüklenemedi, tekrar deneyin.');
-        } elseif (!isset($okMime[$ext])) {
-            flash('error', 'Sadece .xlsx ya da .csv yükleyin. Eski .xls dosyasını Excel\'de "Farklı kaydet → .xlsx" yapın.');
-        } elseif (!in_array($mime, $okMime[$ext], true)) {
-            flash('error', 'Dosyanın içeriği uzantısıyla uyuşmuyor.');
+        $ext = upload_ext($f);
+        if ($problem = upload_problem($f)) {
+            flash('error', $problem);
         } else {
             if (!is_dir($dir)) {
                 mkdir($dir, 0775, true);
@@ -83,9 +71,10 @@ if (is_post()) {
         $sheet = read_sheet("$dir/{$imp['file']}", $imp['ext']);
 
         $mapping = [];
-        foreach (array_keys($sheet['header']) as $i) {
+        foreach ($sheet['header'] as $i => $h) {
             $m = $_POST['map'][$i] ?? 'ignore';
-            $mapping[$i] = isset(IMPORT_FIELDS[$m]) ? $m : 'ignore';
+            // kişisel veri sütunu formdan ne gelirse gelsin alınmaz
+            $mapping[$i] = is_personal_header($h) || !isset(IMPORT_FIELDS[$m]) ? 'ignore' : $m;
         }
         $counts = array_count_values($mapping);
         $active = active_event();
@@ -213,11 +202,15 @@ render_header('Liste yükle', 'import', ['admin.css']);
         <?php foreach ($sheet['header'] as $i => $h): ?>
           <label class="field map-row">
             <span><?= e($h) ?></span>
+            <?php if (is_personal_header($h)): ?>
+              <select class="input" disabled><option>Alınmaz — kişisel veri</option></select>
+            <?php else: ?>
             <select class="input" name="map[<?= e($i) ?>]">
               <?php foreach (IMPORT_FIELDS as $k => $label): ?>
                 <option value="<?= e($k) ?>"<?= $mapping[$i] === $k ? ' selected' : '' ?>><?= e($label) ?></option>
               <?php endforeach; ?>
             </select>
+            <?php endif; ?>
           </label>
         <?php endforeach; ?>
       </div>

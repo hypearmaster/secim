@@ -30,7 +30,7 @@ if (can('stance', $user)) {
     }
 }
 
-$logSql = "SELECT al.*, p.full_name AS person_name, p.region, u.username, u.full_name AS user_name
+$logSql = "SELECT al.*, p.full_name AS person_name, p.authority AS person_authority, p.region, p.stance AS person_stance, u.username, u.full_name AS user_name
            FROM attendance_log al
            JOIN people p ON p.id = al.person_id
            JOIN users u ON u.id = al.user_id
@@ -168,15 +168,16 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
                 </tr>
             </thead>
             <tbody>
+            <?php $bizimle = can('stance', $user) ? (string) config('supporter_stance', 'bizimle') : null; ?>
             <?php foreach ($recentLogs as $log): ?>
-                <tr>
+                <tr<?= $bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '' ?>>
                     <td><?= e(fmt_datetime($log['created_at'])) ?></td>
                     <td>
                         <span class="badge badge-<?= $log['action'] === 'mark' ? 'success' : ($log['action'] === 'unmark' ? 'danger' : 'warning') ?>">
                             <?= e($log['action'] === 'mark' ? 'Geldi' : ($log['action'] === 'unmark' ? 'Geri alındı' : 'Durum değiştirildi')) ?>
                         </span>
                     </td>
-                    <td><?= e($log['person_name']) ?></td>
+                    <td><?= e($log['person_authority'] ?: $log['person_name']) ?></td>
                     <td><?= e($log['region'] ?? '—') ?></td>
                     <td><?= e($log['user_name']) ?></td>
                 </tr>

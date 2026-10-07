@@ -130,6 +130,32 @@ $s4 = set_stance($yon, $merkezId, null);
 check('stance temizlenir', $s4['ok'] && $s4['person']['stance']['value'] === null);
 check('names_only doğum tarihi/yerini atar', names_only('MEHMET GENÇ-06.01.1980-ÖMERLİ,ORHAN DOĞAN-10.02.1963-ŞİRAN') === 'MEHMET GENÇ, ORHAN DOĞAN');
 
+// Aynı firma / şubeler tek kart
+$b1 = insert_person($testEvent, null, ['full_name' => 'ZİNCİR MAĞAZACILIK A.Ş. AGORA ŞUBESİ', 'authority' => 'Erdal Sağlam', 'region' => 'Merkez', 'ref_no' => 'Z1']);
+$b2 = insert_person($testEvent, null, ['full_name' => 'ZİNCİR MAĞAZACILIK A.Ş. KEPEZ ŞUBESİ', 'authority' => 'Erdal Sağlam', 'region' => 'Merkez', 'ref_no' => 'Z2']);
+$b3 = insert_person($testEvent, null, ['full_name' => 'ZİNCİR MAĞAZACILIK A.Ş. KUZEY ŞUBESİ', 'authority' => 'Erdal Sağlam', 'region' => 'Kuzey', 'ref_no' => 'Z3']);
+$b4 = insert_person($testEvent, null, ['full_name' => 'SAĞLAM İNŞAAT LTD ŞTİ', 'authority' => 'Erdal Sağlam', 'region' => 'Merkez', 'ref_no' => 'Z4']);
+$cards = search_people($yon, ['q' => 'erdal saglam'])['items'];
+check('şubeler tek kart, başka şirketi ayrı kart', count($cards) === 2 && in_array(3, array_column($cards, 'count'), true));
+$onayCards = search_people($onay, ['q' => 'zincir'])['items'];
+check('onaycı sadece kendi bölgesindeki şubeleri görür', count($onayCards) === 1 && $onayCards[0]['count'] === 2);
+$g = mark_person($onay, $b2);
+$attOf = fn(int $id) => q('SELECT attended_at IS NOT NULL FROM people WHERE id = ?', [$id])->fetchColumn() == 1;
+check('GELDİ kapsamdaki tüm şubeleri işaretler', $g['ok'] && $g['marked'] === 2 && $attOf($b1) && $attOf($b2));
+check('kapsam dışı şube (başka bölge) işaretlenmez', !$attOf($b3));
+check('başka şirketi etkilenmez', !$attOf($b4));
+$yg = search_people($yon, ['q' => 'zincir'])['items'][0];
+check('yönetici kısmi geleni görür (2/3)', $yg['came_count'] === 2 && $yg['count'] === 3 && !$yg['attended']);
+$g2 = mark_person($yon, $b1);
+check('yönetici kalanı işaretler', $g2['ok'] && $g2['marked'] === 1 && $attOf($b3));
+check('hepsi geldiyse ikinci GELDİ 409', mark_person($yon, $b3)['status'] === 409);
+$u = unmark_person($onay, $b1);
+check('onaycı geri alma: sadece kendi işaretlediği şubeler', $u['ok'] && !$attOf($b1) && !$attOf($b2) && $attOf($b3));
+$st = set_stance($yon, $b1, 'bizimle');
+check('Bizimle mi? tüm şubelere yazılır', $st['ok'] && q("SELECT COUNT(*) FROM people WHERE id IN (?, ?, ?) AND stance = 'bizimle'", [$b1, $b2, $b3])->fetchColumn() == 3);
+check('Bizimle mi? başka şirkete yazılmaz', q('SELECT stance FROM people WHERE id = ?', [$b4])->fetchColumn() === null);
+check('yetkilisiz kayıtlar birleşmez', firm_key('AHMET KAYA', null, '1') !== firm_key('AHMET KAYA', null, '2'));
+
 // Bizimkiler (isim listesi eşleştirme)
 require APP_ROOT . '/src/spreadsheet.php';
 require APP_ROOT . '/src/supporters.php';

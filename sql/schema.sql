@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS people (
   stance       VARCHAR(32)  NULL COMMENT 'Bizimle mi? (config stance_options anahtarı)',
   extra        LONGTEXT     NULL COMMENT 'Excel''deki eşlenmeyen sütunlar (JSON)',
   search_key   VARCHAR(500) NOT NULL DEFAULT '' COMMENT 'Türkçe karaktersiz küçük harf ad+ref (search_key())',
+  firm_key     VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Aynı firma/şubeler tek kart (firm_key())',
   attended_at  DATETIME     NULL,
   attended_by  INT UNSIGNED NULL,
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS people (
   KEY ix_people_event_name   (event_id, full_name),
   KEY ix_people_event_att    (event_id, attended_at),
   KEY ix_people_event_stance (event_id, stance),
+  KEY ix_people_event_firm   (event_id, firm_key),
   CONSTRAINT fk_people_event FOREIGN KEY (event_id)    REFERENCES events(id),
   CONSTRAINT fk_people_batch FOREIGN KEY (batch_id)    REFERENCES import_batches(id),
   CONSTRAINT fk_people_user  FOREIGN KEY (attended_by) REFERENCES users(id)

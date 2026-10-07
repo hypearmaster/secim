@@ -92,21 +92,39 @@
   }
 
   function card(p) {
-    var c = el('article', 'p-card' + (p.attended ? ' is-came' : ''));
+    var bizimle = cfg.supporterStance && p.stance && p.stance.value === cfg.supporterStance;
+    var c = el('article', 'p-card' + (p.attended ? ' is-came' : '') + (bizimle ? ' is-bizimle' : ''));
     c.setAttribute('data-id', p.id);
 
     var main = el('div', 'p-main');
     main.appendChild(el('h3', 'p-name', displayName(p)));
-    if (p.authority) main.appendChild(el('div', 'p-firm', p.full_name));
+    if (p.count > 1) {
+      // Aynı firmanın şubeleri tek kart: ilk unvan + açılır liste
+      var d = el('details', 'p-firms');
+      var sm = el('summary', null, p.full_name);
+      sm.appendChild(el('span', 'p-count', ' · ' + p.count + ' şube/firma'));
+      d.appendChild(sm);
+      var ul = el('ul');
+      p.firms.forEach(function (f) { ul.appendChild(el('li', null, f)); });
+      d.appendChild(ul);
+      main.appendChild(d);
+    } else if (p.authority) {
+      main.appendChild(el('div', 'p-firm', p.full_name));
+    }
     var tags = el('div', 'p-tags');
-    if (p.region) tags.appendChild(el('span', 'badge', p.region));
+    (p.regions && p.regions.length ? p.regions : (p.region ? [p.region] : [])).forEach(function (r) {
+      tags.appendChild(el('span', 'badge', r));
+    });
     if (p.group_name) tags.appendChild(el('span', 'badge', p.group_name));
-    if (p.ref_no) tags.appendChild(el('span', 'p-ref', 'Sicil ' + p.ref_no));
+    if (p.ref_no) tags.appendChild(el('span', 'p-ref', p.count > 1 ? p.ref_no : 'Sicil ' + p.ref_no));
     if (cfg.canStance) tags.appendChild(stanceControl(p));
     main.appendChild(tags);
     c.appendChild(main);
 
     var act = el('div', 'p-action');
+    if (p.came_count > 0 && !p.attended) {
+      act.appendChild(el('div', 'p-partial', p.came_count + '/' + p.count + ' işaretli'));
+    }
     if (!p.attended) {
       var b = el('button', 'btn btn-geldi', 'GELDİ');
       b.type = 'button';
@@ -118,14 +136,14 @@
       done.appendChild(el('strong', null, '✓ Geldi ' + p.attended_time));
       if (p.attended_by_name) done.appendChild(el('span', 'p-by', p.mine ? 'Siz işaretlediniz' : p.attended_by_name));
       act.appendChild(done);
-      if (p.can_unmark) {
-        var u = el('button', 'btn btn-sm btn-ghost p-undo', 'Geri al');
-        u.type = 'button';
-        u.addEventListener('click', function () {
-          if (window.confirm(displayName(p) + ' için "geldi" işareti geri alınsın mı?')) mark(p, 'unmark', u);
-        });
-        act.appendChild(u);
-      }
+    }
+    if (p.can_unmark) {
+      var u = el('button', 'btn btn-sm btn-ghost p-undo', 'Geri al');
+      u.type = 'button';
+      u.addEventListener('click', function () {
+        if (window.confirm(displayName(p) + ' için "geldi" işareti geri alınsın mı?')) mark(p, 'unmark', u);
+      });
+      act.appendChild(u);
     }
     c.appendChild(act);
     return c;
@@ -148,7 +166,7 @@
         if (res.ok) {
           if (action === 'mark') {
             if (navigator.vibrate) navigator.vibrate(30);
-            toast('✓ ' + displayName(res.person) + ' geldi', 'success');
+            toast('✓ ' + displayName(res.person) + ' geldi' + (res.marked > 1 ? ' (' + res.marked + ' firma)' : ''), 'success');
           } else {
             toast('İşaret geri alındı');
           }
