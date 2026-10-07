@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS people (
   group_name   VARCHAR(120) NULL COMMENT 'Grup; NULL = grupsuz',
   stance       VARCHAR(32)  NULL COMMENT 'Bizimle mi? (config stance_options anahtarı)',
   extra        LONGTEXT     NULL COMMENT 'Excel''deki eşlenmeyen sütunlar (JSON)',
-  search_key   VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Türkçe karaktersiz küçük harf ad+ref (search_key())',
+  search_key   VARCHAR(500) NOT NULL DEFAULT '' COMMENT 'Türkçe karaktersiz küçük harf ad+ref (search_key())',
   attended_at  DATETIME     NULL,
   attended_by  INT UNSIGNED NULL,
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

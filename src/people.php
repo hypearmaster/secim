@@ -87,7 +87,7 @@ function people_scope(array $user, string $alias = 'p', ?int $eventId = null): a
 
 /* ---------- Arama anahtarı ---------- */
 
-/** "Şükrü Öztürk" -> "sukru ozturk": telefonda Türkçe karakter yazmadan da bulunsun. */
+/** "Şükrü Öztürk" -> "sukru ozturk": telefonda Türkçe karakter yazmadan da bulunsun. Ad + yetkili + sicil no. */
 function search_key(?string ...$parts): string
 {
     $s = implode(' ', array_filter($parts, fn($p) => $p !== null && $p !== ''));
@@ -112,18 +112,19 @@ function insert_person(int $eventId, ?int $batchId, array $data): int
         throw new InvalidArgumentException('Ad soyad boş olamaz.');
     }
     $refNo = clean_text($data['ref_no'] ?? null, 64);
+    $authority = clean_text($data['authority'] ?? null, 255);
     $extra = !empty($data['extra']) ? json_encode($data['extra'], JSON_UNESCAPED_UNICODE) : null;
     q(
         'INSERT INTO people (event_id, batch_id, ref_no, full_name, authority, region, group_name, stance, extra, search_key, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
         [
             $eventId, $batchId, $refNo, $fullName,
-            clean_text($data['authority'] ?? null, 255),
+            $authority,
             clean_text($data['region'] ?? null, 120),
             clean_text($data['group_name'] ?? null, 120),
             stance_from_text($data['stance'] ?? null),
             $extra,
-            search_key($fullName, $refNo),
+            search_key($fullName, $authority, $refNo), // yetkili adıyla da bulunsun
         ]
     );
     return (int) db()->lastInsertId();

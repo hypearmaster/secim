@@ -1,0 +1,102 @@
+/* Onay ekranı — telefonda tek elle kullanım. app.css'in üstüne. */
+
+/* Bu sayfada üst bar kayar, arama bloğu yapışır (iki yapışkan katman ekranı yemesin) */
+.topbar { position: static; }
+
+.onay { padding-bottom: 96px; }
+
+.onay-head {
+  position: sticky; top: 0; z-index: 15;
+  background: var(--bg);
+  padding: 12px 16px 8px;
+  max-width: 1100px; margin: 0 auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.onay-count { display: flex; align-items: center; gap: 12px; font-size: .95rem; margin-bottom: 10px; }
+.onay-count > div:first-child { white-space: nowrap; }
+.onay-count strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; color: var(--success); }
+.onay-count .progress { flex: 1; }
+.onay-count .progress > span { transition: width .3s ease; }
+
+.onay-search { position: relative; }
+.onay-search .input { padding-left: 42px; min-height: 52px; font-size: 17px; border-radius: var(--radius); }
+.onay-search-icon { position: absolute; left: 14px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+
+/* Durum seçici */
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 10px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.seg-btn { min-height: 40px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.seg-btn.is-active { background: var(--text); color: #fff; }
+
+/* Filtreler (katlanır, telefonda yer kaplamasın) */
+.filters { margin-top: 8px; }
+.filters summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--muted); padding: 6px 2px; list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }
+.filters summary::-webkit-details-marker { display: none; }
+.filters summary::before { content: "▸"; transition: transform .15s; }
+.filters[open] summary::before { transform: rotate(90deg); }
+.filters summary .badge { background: var(--primary); color: #fff; border-color: transparent; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 6px; scrollbar-width: none; align-items: center; }
+.chips::-webkit-scrollbar { display: none; }
+.chips-label { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); white-space: nowrap; margin-right: 2px; }
+.chip-count { color: var(--muted); font-size: .8rem; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.chip.is-active .chip-count { color: #cbd5e1; }
+
+.result-info { max-width: 1100px; margin: 8px auto 0; padding: 0 16px; font-size: .85rem; }
+
+/* Liste */
+.onay-list { max-width: 1100px; margin: 0 auto; padding: 8px 16px; display: grid; gap: 10px; }
+.onay.is-loading .onay-list { opacity: .55; transition: opacity .15s; }
+
+.p-card {
+  display: grid; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px; box-shadow: var(--shadow);
+}
+.p-card.is-came { background: var(--success-soft); border-color: #9fd8b1; }
+.p-card.is-came .p-tags .badge { background: var(--surface); border: 1px solid #9fd8b1; }
+.p-name { font-size: 1.05rem; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
+.p-auth { font-size: .92rem; margin-bottom: 6px; overflow-wrap: anywhere; }
+.p-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.p-ref { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* "Bizimle mi?" — rozet görünümlü yerel <select> (telefonda sistem seçicisi açılır) */
+.p-stance { position: relative; cursor: pointer; min-height: 28px; padding: 4px 10px; }
+.p-stance::after { content: "▾"; margin-left: 2px; opacity: .7; }
+.p-stance-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.p-stance:focus-within { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
+
+.p-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.btn-geldi {
+  width: 100%; min-height: 56px; font-size: 1.15rem; letter-spacing: .04em;
+  background: var(--surface); color: var(--success); border: 2px solid var(--success); border-radius: var(--radius);
+}
+.btn-geldi:hover { background: var(--success-soft); }
+.btn-geldi:active { background: var(--success); color: #fff; }
+.btn-geldi.is-loading { background: var(--success-soft); }
+.p-done { display: flex; flex-direction: column; color: var(--success); flex: 1; min-width: 0; }
+.p-done strong { font-size: 1.05rem; }
+.p-by { font-size: .85rem; color: var(--muted); }
+.p-undo { color: var(--danger); border-color: transparent; }
+
+@media (min-width: 640px) {
+  .p-card { grid-template-columns: 1fr 180px; align-items: center; }
+  .p-action { justify-content: flex-end; }
+  .p-done { text-align: right; }
+}
+
+/* Toast */
+.toast {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 50;
+  transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  max-width: calc(100% - 32px); padding: 12px 18px; border-radius: var(--radius);
+  background: var(--text); color: #fff; font-weight: 600; box-shadow: 0 8px 24px rgba(15, 23, 42, .25);
+  transition: opacity .2s, transform .2s;
+}
+.toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.toast-success { background: var(--success); }
+.toast-warning { background: var(--warning); }
+.toast-error { background: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .onay-count .progress > span, .filters summary::before { transition: none; }
+}

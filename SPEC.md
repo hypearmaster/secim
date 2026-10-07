@@ -65,7 +65,7 @@ Yetkiler (`can()`): `mark`, `unmark_any`, `view_all`, `dashboard`, `export`, `vi
   → `{ok, items:[Person], total, page, has_more, stats:{total,came}}`
 - `POST api/mark.php` (form: `person_id`, `action=mark|unmark`; başlık `X-CSRF-Token`)
   → başarı 200 `{ok:true, person, stats}`; hata `{ok:false, error, person?, stats}`
-  durumlar: 401 oturum yok, 403 yetki/süre, 404 bulunamadı, 409 zaten işaretli/işaretsiz, 419 CSRF
+  durumlar: 401 oturum yok, 403 yetki/süre/CSRF, 404 bulunamadı, 409 zaten işaretli/işaretsiz
 - `Person` = `{id, full_name, authority, region, group_name, ref_no, attended, attended_time, attended_by_name, mine, can_unmark, stance}`
   (`stance` = `{value,label,color}` ya da yetkisizse `null`)
 - `POST api/stance.php` (`person_id`, `value` = seçenek anahtarı ya da boş) → `{ok, person}`
