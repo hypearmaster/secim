@@ -35,4 +35,10 @@ return [
     ],
     // Bizimkiler listesinde eşleşenlere yazılan "Bizimle mi?" anahtarı; onay ekranında mavi zemin.
     'supporter_stance' => 'bizimle',
+    // Oy sayacı: büyük butonlar. anahtar => [etiket, renk(hex)]. Soldan sağa ekrandaki sıra.
+    // İleride beyaz/yeşil vb. eklemek için satır ekleyin; sayfa kendiliğinden büyür.
+    'vote_options' => [
+        'mavi'    => ['Mavi', '#1d4ed8'],
+        'kirmizi' => ['Kırmızı', '#dc2626'],
+    ],
 ];

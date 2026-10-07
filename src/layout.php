@@ -18,6 +18,7 @@ function render_header(string $title, string $active = '', array $extraCss = [])
         if (can('dashboard', $user)) $nav['dashboard'] = ['admin/index.php', 'Panel'];
         $nav['app'] = ['app.php', 'Onay'];
         if (can('supporters', $user)) $nav['supporters'] = ['admin/supporters.php', 'Bizimkiler'];
+        if (can('vote', $user)) $nav['counter'] = ['admin/counter.php', 'Oy Sayacı'];
         if (can('view_log', $user)) $nav['log'] = ['admin/log.php', 'Kayıtlar'];
         if (can('view_audit', $user)) $nav['audit'] = ['admin/audit.php', 'Denetim'];
         if (can('export', $user)) $nav['export'] = ['admin/export.php', 'Dışa aktar'];

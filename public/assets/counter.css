@@ -1,0 +1,41 @@
+/* Oy sayacı — büyük renkli butonlar, anlık toplam. app.css üstüne. */
+
+.counter { padding: 16px; max-width: 900px; margin: 0 auto; padding-bottom: 96px; }
+
+.counter-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.counter-total { display: flex; align-items: baseline; gap: 10px; }
+.counter-total-label { font-size: 1rem; color: var(--muted); font-weight: 600; }
+.counter-total strong { font-size: 2.4rem; font-variant-numeric: tabular-nums; line-height: 1; }
+.counter-last { font-size: .9rem; color: var(--muted); min-height: 1.2em; }
+
+/* Butonlar: tek sütun telefonda, iki+ sütun genişte. Renk --vote (hex) butonda zemin. */
+.counter-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 560px) { .counter-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.vote-btn {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 160px; padding: 20px; border: 0; border-radius: var(--radius); cursor: pointer;
+  color: #fff; background: var(--vote); box-shadow: var(--shadow);
+  font: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform .06s ease, filter .12s ease;
+}
+.vote-btn:hover { filter: brightness(1.05); }
+.vote-btn:active { transform: scale(.97); filter: brightness(.92); }
+.vote-btn:focus-visible { outline: 4px solid var(--primary-soft); outline-offset: 3px; }
+/* Açık renkli butonlarda (beyaz vb.) yazı koyu olsun */
+.vote-btn.is-light { color: var(--text); border: 1px solid var(--border); }
+.vote-btn-label { font-size: 1.5rem; font-weight: 800; letter-spacing: .02em; }
+.vote-btn-count { font-size: 3rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.vote-btn-hint { font-size: .85rem; opacity: .85; }
+/* Sayı değişince kısa zıplama */
+.vote-btn-count.bump { animation: vote-bump .25s ease; }
+@keyframes vote-bump { 0% { transform: scale(1); } 40% { transform: scale(1.25); } 100% { transform: scale(1); } }
+
+.counter-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.counter-actions .btn { flex: 1; min-width: 140px; }
+.counter-reset { color: var(--danger); }
+.counter-note { margin-top: 12px; font-size: .85rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vote-btn, .vote-btn-count.bump { transition: none; animation: none; }
+}

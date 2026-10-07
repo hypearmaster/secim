@@ -125,6 +125,37 @@ CREATE TABLE IF NOT EXISTS audit_log (
   CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
+-- Oy sayacı: her tıklama bir satır (geri alma + denetim izi + kim saydı). Sayımlar COUNT(*) ile.
+CREATE TABLE IF NOT EXISTS vote_log (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  event_id    INT UNSIGNED NOT NULL,
+  option_key  VARCHAR(32)  NOT NULL COMMENT 'config vote_options anahtarı (mavi, kirmizi...)',
+  user_id     INT UNSIGNED NOT NULL,
+  ip          VARBINARY(16) NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY ix_vote_event_opt (event_id, option_key),
+  KEY ix_vote_event_id  (event_id, id),
+  CONSTRAINT fk_vote_event FOREIGN KEY (event_id) REFERENCES events(id),
+  CONSTRAINT fk_vote_user  FOREIGN KEY (user_id)  REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- Hediye: bağımsız isim listesi (sadece ad) + verdik/vermedik. Üye listesiyle eşleşmez.
+CREATE TABLE IF NOT EXISTS gifts (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  event_id    INT UNSIGNED NOT NULL,
+  name        VARCHAR(160) NOT NULL,
+  search_key  VARCHAR(255) NOT NULL DEFAULT '',
+  note        VARCHAR(190) NULL COMMENT 'opsiyonel: firma / açıklama',
+  given_at    DATETIME     NULL,
+  given_by    INT UNSIGNED NULL,
+  batch_id    INT UNSIGNED NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY ix_gifts_event (event_id, given_at),
+  KEY ix_gifts_key   (event_id, search_key),
+  CONSTRAINT fk_gifts_event FOREIGN KEY (event_id) REFERENCES events(id),
+  CONSTRAINT fk_gifts_user  FOREIGN KEY (given_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
 -- "Bizimkiler": bizimle olan kişilerin isim listesi ve üye listesiyle eşleşmesi (etkinliğe bağlı).
 CREATE TABLE IF NOT EXISTS supporters (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

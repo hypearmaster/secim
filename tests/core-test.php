@@ -47,6 +47,8 @@ $onay = make_test_user("{$tag}_onay", 'onayci', 'Merkez');   // bölge kısıtl�
 $yon = make_test_user("{$tag}_yon", 'yonetici', null);        // tüm bölgeler
 $testEvent = create_event("__TEST__ $tag", $yon['id']);       // aktif yapar
 register_shutdown_function(function () use ($testEvent, $prevEvent, $onay, $yon) {
+    q('DELETE FROM vote_log WHERE event_id = ?', [$testEvent]);
+    q('DELETE FROM gifts WHERE event_id = ?', [$testEvent]);
     q('DELETE FROM attendance_log WHERE event_id = ?', [$testEvent]);
     q('DELETE FROM supporters WHERE event_id = ?', [$testEvent]); // supporter_people CASCADE
     q('DELETE FROM people WHERE event_id = ?', [$testEvent]);
@@ -331,6 +333,27 @@ check('telefon satırları ad sütunu olmadan', $pr === [['ref_no' => 'TP2', 'ph
     ['ref_no' => 'TP1', 'phone' => '+902421112233']], json_encode($pr));
 $up2 = update_phones($testEvent, $pr);
 check('adsız dosyayla telefon güncellenir', $up2['updated'] === 2 && $up2['not_found'] === 1, json_encode($up2));
+
+// Oy sayacı
+require APP_ROOT . '/src/votes.php';
+check('onaycı oy sayamaz', !vote_add($onay, 'mavi')['ok'] && vote_add($onay, 'mavi')['status'] === 403);
+$v1 = vote_add($yon, 'mavi');
+$tallyOf = fn($t, $k) => (array_values(array_filter($t['options'], fn($o) => $o['key'] === $k))[0]['count'] ?? null);
+check('yönetici +1 (mavi)', $v1['ok'] && $tallyOf($v1['tallies'], 'mavi') === 1 && $v1['tallies']['total'] === 1);
+vote_add($yon, 'mavi');
+$v3 = vote_add($yon, 'kirmizi');
+check('ayrı renkler ayrı sayılır', $tallyOf($v3['tallies'], 'mavi') === 2 && $tallyOf($v3['tallies'], 'kirmizi') === 1 && $v3['tallies']['total'] === 3);
+check('geçersiz seçenek 422', vote_add($yon, 'mor')['status'] === 422);
+$u1 = vote_undo($yon, 'mavi');
+check('belirli rengi geri al', $u1['ok'] && $u1['undone'] === 'Mavi' && $tallyOf($u1['tallies'], 'mavi') === 1);
+$u2 = vote_undo($yon, null);
+check('son sayımı geri al (renksiz)', $u2['ok'] && $u2['tallies']['total'] === 1);
+vote_undo($yon, null);
+$u4 = vote_undo($yon, null);
+check('boş sayaçta geri al 409', !$u4['ok'] && $u4['status'] === 409 && $u4['tallies']['total'] === 0);
+vote_add($yon, 'mavi'); vote_add($yon, 'kirmizi');
+check('yönetici sıfırlayamaz (sadece admin)', !vote_reset($yon)['ok'] && vote_reset($yon)['status'] === 403);
+check('oy kaydı denetimden bağımsız etkinliğe bağlı', vote_tallies($testEvent)['total'] === 2);
 
 check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
 q("DELETE FROM audit_log WHERE target = '__test__'");

@@ -26,6 +26,10 @@ const AUDIT_ACTIONS = [
     'supporter_link'     => 'Bizimkiler eşleşme',
     'supporter_unlink'   => 'Bizimkiler eşleşme kaldırıldı',
     'supporters_clear'   => 'Bizimkiler silindi',
+    'vote_reset'         => 'Oy sayacı sıfırlandı',
+    'gifts_import'       => 'Hediye listesi yüklendi',
+    'gifts_clear'        => 'Hediye listesi silindi',
+    'gift_add'           => 'Hediye kişi eklendi',
 ];
 
 /**
