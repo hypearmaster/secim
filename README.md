@@ -34,7 +34,8 @@ Notlar:
 - `Module "mysqli" is already loaded` uyarısı XAMPP'ın `php.ini` ayarından gelir, zararsız.
 - Bu proje Laravel değil: `php artisan` yok.
 - Şifre unutulursa: `C:\xampp\php\php.exe bin\create-user.php admin admin "Ad Soyad"` (şifreyi sıfırlar).
-- Çekirdek testleri (demo veri gerekir): `C:\xampp\php\php.exe tests\core-test.php`
+- Çekirdek testleri: `C:\xampp\php\php.exe tests\core-test.php` (kendi geçici listesini açıp
+  siler, gerçek veriye dokunmaz; işaretleme yapılmış listede `--force` ister)
 
 ## Kullanıcılar
 
