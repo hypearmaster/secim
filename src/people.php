@@ -418,34 +418,58 @@ function set_stance(array $user, int $personId, ?string $value): array
     if ($event === null) {
         return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
     }
-    $pdo = db();
-    $pdo->beginTransaction();
-    try {
-        $members = lock_group($user, $personId); // okuma transaction içinde, kilitli
-        if ($members === null) {
-            $pdo->rollBack();
-            return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
-        }
-        foreach ($members as $m) {
-            if ($m['stance'] === $value) {
-                continue;
+    // Sıra: önce liste kilidi, sonra transaction + satır kilitleri (sync_stance_supporters ile aynı sıra)
+    $found = with_supporter_lock($event['id'], function () use ($user, $personId, $value, $event): bool {
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $members = lock_group($user, $personId); // okuma transaction içinde, kilitli
+            if ($members === null) {
+                $pdo->rollBack();
+                return false;
             }
-            q('UPDATE people SET stance = ? WHERE id = ?', [$value, $m['id']]);
-            q(
-                'INSERT INTO attendance_log (event_id, person_id, user_id, action, note, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
-                [$event['id'], $m['id'], $user['id'], 'stance', $value, client_ip_bin()]
-            );
+            foreach ($members as $m) {
+                if ($m['stance'] === $value) {
+                    continue;
+                }
+                q('UPDATE people SET stance = ? WHERE id = ?', [$value, $m['id']]);
+                q(
+                    'INSERT INTO attendance_log (event_id, person_id, user_id, action, note, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+                    [$event['id'], $m['id'], $user['id'], 'stance', $value, client_ip_bin()]
+                );
+            }
+            sync_supporter_for_group($event['id'], array_map('intval', array_column($members, 'id')), $value, $user['id']);
+            $pdo->commit();
+            return true;
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
         }
-        sync_supporter_for_group($event['id'], array_map('intval', array_column($members, 'id')), $value, $user['id']);
-        $pdo->commit();
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
+    });
+    if (!$found) {
+        return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
     }
     return ['ok' => true, 'status' => 200, 'person' => group_view(find_group($user, $personId), $user)];
 }
 
 /* ---------- "Bizimle" etiketi ↔ Bizimkiler listesi ---------- */
+
+/**
+ * Etiket↔liste senkronunu etkinlik başına SIRAYA sokar (MySQL adlı kilit). Paralel iki istek
+ * aynı firma için iki "elle" kayıt açamaz. Satır kilitlerinden ÖNCE alınmalı (deadlock olmasın).
+ */
+function with_supporter_lock(int $eventId, callable $fn): mixed
+{
+    $name = 'secim_supporters_' . $eventId;
+    if ((int) q('SELECT GET_LOCK(?, 10)', [$name])->fetchColumn() !== 1) {
+        throw new RuntimeException('Sistem meşgul, birkaç saniye sonra tekrar deneyin.');
+    }
+    try {
+        return $fn();
+    } finally {
+        q('SELECT RELEASE_LOCK(?)', [$name]);
+    }
+}
 
 /** Bizimkiler'de sayılan "Bizimle mi?" anahtarı (config'de yoksa null). */
 function supporter_stance(): ?string
@@ -506,15 +530,26 @@ function sync_stance_supporters(int $eventId, ?int $userId): int
     if ($bizimle === null) {
         return 0;
     }
-    $keys = q("SELECT DISTINCT p.firm_key FROM people p WHERE p.event_id = ? AND p.stance = ?
-               AND NOT EXISTS (SELECT 1 FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id AND s.status = 'matched'
-                               WHERE sp.person_id = p.id)", [$eventId, $bizimle])->fetchAll(PDO::FETCH_COLUMN);
-    foreach ($keys as $key) {
-        $ids = array_map('intval', q('SELECT id FROM people WHERE event_id = ? AND firm_key = ? AND stance = ?',
-            [$eventId, $key, $bizimle])->fetchAll(PDO::FETCH_COLUMN));
-        sync_supporter_for_group($eventId, $ids, $bizimle, $userId);
-    }
-    return count($keys);
+    // Kilit + transaction: aynı anda açılan iki sayfa aynı firmaya iki kayıt açamaz
+    return with_supporter_lock($eventId, function () use ($eventId, $bizimle, $userId): int {
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $keys = q("SELECT DISTINCT p.firm_key FROM people p WHERE p.event_id = ? AND p.stance = ?
+                       AND NOT EXISTS (SELECT 1 FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id AND s.status = 'matched'
+                                       WHERE sp.person_id = p.id)", [$eventId, $bizimle])->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($keys as $key) {
+                $ids = array_map('intval', q('SELECT id FROM people WHERE event_id = ? AND firm_key = ? AND stance = ?',
+                    [$eventId, $key, $bizimle])->fetchAll(PDO::FETCH_COLUMN));
+                sync_supporter_for_group($eventId, $ids, $bizimle, $userId);
+            }
+            $pdo->commit();
+            return count($keys);
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    });
 }
 
 /* ---------- Excel yardımcıları ---------- */

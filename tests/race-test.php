@@ -20,6 +20,10 @@ if (($argv[1] ?? '') === '--worker') {
     while (microtime(true) < (float) $argv[5]) {
         usleep(200);
     }
+    if ($argv[2] === 'sync') {
+        echo sync_stance_supporters((int) $argv[4], null);
+        exit;
+    }
     $r = $argv[2] === 'mark' ? mark_person($u, (int) $argv[4]) : unmark_person($u, (int) $argv[4]);
     echo $r['status'];
     exit;
@@ -38,6 +42,7 @@ $uid = (int) db()->lastInsertId();
 $event = create_event("__TEST__ $tag", $uid);
 register_shutdown_function(function () use ($event, $uid, $prev) {
     q('DELETE FROM attendance_log WHERE event_id = ?', [$event]);
+    q('DELETE FROM supporters WHERE event_id = ?', [$event]);
     q('DELETE FROM people WHERE event_id = ?', [$event]);
     q('DELETE FROM events WHERE id = ?', [$event]);
     q('DELETE FROM users WHERE id = ?', [$uid]);
@@ -74,4 +79,25 @@ for ($round = 1; $round <= $rounds; $round++) {
     }
 }
 echo $half ? "BAŞARISIZ: $half/$rounds turda grup yarım kaldı\n" : "Tüm $rounds turda grup tutarlı (hepsi ya da hiçbiri)\n";
-exit($half ? 1 : 0);
+
+// 2) İki yönetici Bizimkiler'i aynı anda açar: elle "Bizimle" firma için TEK kayıt açılmalı
+$dup = 0;
+for ($round = 1; $round <= 20; $round++) {
+    q('DELETE FROM supporters WHERE event_id = ?', [$event]);
+    q("UPDATE people SET stance = 'bizimle' WHERE event_id = ?", [$event]);
+    $procs = [];
+    $start = sprintf('%.4f', microtime(true) + 0.6);
+    foreach ([1, 2] as $n) {
+        $procs[] = proc_open("$php $self --worker sync $uid $event $start", [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pp[$n]);
+    }
+    foreach ($procs as $p) {
+        proc_close($p);
+    }
+    $count = (int) q('SELECT COUNT(*) FROM supporters WHERE event_id = ?', [$event])->fetchColumn();
+    if ($count !== 1) {
+        $dup++;
+        echo "  senkron turu $round: $count kayıt (1 olmalı)\n";
+    }
+}
+echo $dup ? "BAŞARISIZ: $dup/20 turda çift kayıt\n" : "Tüm 20 turda eşzamanlı senkron tek kayıt açtı\n";
+exit(($half || $dup) ? 1 : 0);

@@ -225,9 +225,10 @@ delete_supporter($isz);
 check('sil: isim listeden kalkar', !q('SELECT COUNT(*) FROM supporters WHERE id = ?', [$isz['id']])->fetchColumn());
 $fb = q('SELECT * FROM supporters WHERE id = ?', [$fb['id']])->fetch();
 check('GELDİ kaydı olan bağımsız kişi silinmez', delete_supporter($fb) === 1 && q('SELECT COUNT(*) FROM people WHERE id = ?', [$ip])->fetchColumn() == 1);
-$indep2 = make_independent(['id' => 0, 'event_id' => $testEvent, 'name' => 'Geçici Bağımsız'] + q("SELECT * FROM supporters WHERE event_id = ? LIMIT 1", [$testEvent])->fetch());
-q('DELETE FROM supporter_people WHERE person_id = ?', [$indep2]);
-q('DELETE FROM people WHERE id = ?', [$indep2]);
+$matchedSup = q("SELECT * FROM supporters WHERE event_id = ? AND status = 'matched' LIMIT 1", [$testEvent])->fetch();
+check('eşleşmiş kayıt bağımsız yapılamaz (tahmin onayı atlanmasın)', (function () use ($matchedSup) {
+    try { make_independent($matchedSup); return false; } catch (InvalidArgumentException $e) { return true; }
+})());
 
 check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
 q("DELETE FROM audit_log WHERE target = '__test__'");

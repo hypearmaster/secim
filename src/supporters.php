@@ -219,6 +219,9 @@ function delete_supporter(array $sup): int
  */
 function make_independent(array $sup): int
 {
+    if (($sup['status'] ?? '') !== 'none') {
+        throw new InvalidArgumentException('Bağımsız kayıt sadece bulunamayan isimler için.');
+    }
     $pid = q('SELECT id FROM people WHERE event_id = ? AND batch_id IS NULL AND group_name = ? AND search_key = ?',
         [$sup['event_id'], INDEPENDENT_GROUP, search_key($sup['name'])])->fetchColumn();
     if (!$pid) {

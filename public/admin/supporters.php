@@ -20,6 +20,12 @@ if (is_post()) {
     if (!$event) {
         redirect('admin/supporters.php');
     }
+    // Tüm Bizimkiler yazmaları etkinlik kilidinden sırayla geçer (sayfa senkronu ve Bizimle mi? ile aynı kilit).
+    // İstek bitince bağlantı kapanır, kilit MySQL tarafından bırakılır (redirect exit'i finally'yi atlasa da).
+    if ((int) q('SELECT GET_LOCK(?, 10)', ['secim_supporters_' . $event['id']])->fetchColumn() !== 1) {
+        flash('error', 'Sistem meşgul, birkaç saniye sonra tekrar deneyin.');
+        redirect('admin/supporters.php');
+    }
     $action = $_POST['action'] ?? '';
     $back = 'admin/supporters.php?' . http_build_query(array_filter(['filter' => $_POST['filter'] ?? '', 'find' => $_POST['find'] ?? '']));
 
@@ -98,6 +104,10 @@ if (is_post()) {
             flash('info', "{$sup['name']} listeden silindi." . ($kept ? ' (Bağımsız kaydının GELDİ işlemi olduğu için kişi kaydı korundu.)' : ''));
             break;
         case 'independent':
+            if ($sup['status'] !== 'none') { // tahmin onayı atlanmasın: sadece bulunamayan
+                flash('error', 'Bağımsız kayıt sadece bulunamayan isimler için yapılabilir.');
+                break;
+            }
             make_independent($sup);
             audit('supporter_link', $sup['name'], ['işlem' => 'bağımsız kaydedildi']);
             flash('success', "{$sup['name']} bağımsız kaydedildi; onay ekranında \"" . INDEPENDENT_GROUP . "\" grubunda.");
