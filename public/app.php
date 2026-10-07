@@ -11,9 +11,11 @@ $canAdd = can('add_person', $user);
 
 $regions = ($event && !$regionLocked) ? people_breakdown($user, 'region') : [];
 $groups = $event ? people_breakdown($user, 'group_name') : [];
+// "Bizimle mi?" çipleri için firma sayıları (çiplerde rozet olarak gösterilir)
+$stanceCounts = ($event && $canStance) ? stance_breakdown($user) : [];
 $stances = [];
 foreach (stance_options() as $value => [$label, $color]) {
-    $stances[] = ['value' => $value, 'label' => $label, 'color' => $color];
+    $stances[] = ['value' => $value, 'label' => $label, 'color' => $color, 'total' => $stanceCounts[$value] ?? 0];
 }
 
 $config = [
@@ -75,7 +77,7 @@ render_header('Onay', 'app', ['onay.css']);
       chip_row('region', 'İlçe', $regions);
       chip_row('group', 'Grup', $groups);
       if ($canStance) {
-          chip_row('stance', 'Bizimle mi?', [...$stances, ['value' => NONE_VALUE, 'label' => 'Belirsiz']]);
+          chip_row('stance', 'Bizimle mi?', [...$stances, ['value' => NONE_VALUE, 'label' => 'Belirsiz', 'total' => $stanceCounts[NONE_VALUE] ?? 0]]);
       }
       ?>
     </details>

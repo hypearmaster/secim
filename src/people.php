@@ -373,8 +373,26 @@ function search_people(array $user, array $f, int $limit = 50, int $offset = 0):
 function scope_stats(array $user): array
 {
     [$where, $params] = people_scope($user);
-    $r = q("SELECT COUNT(*) AS total, COALESCE(SUM(p.attended_at IS NOT NULL), 0) AS came FROM people p WHERE $where", $params)->fetch();
+    // FİRMA bazında (şubeler tek): onay kartlarıyla birebir. Firma "geldi" = kapsamdaki TÜM şubeleri
+    // işaretli (yeşil kart). MIN(...) = 1 ancak tüm şubeler geldiyse.
+    $r = q("SELECT COUNT(*) AS total, COALESCE(SUM(all_came), 0) AS came FROM (
+                SELECT MIN(p.attended_at IS NOT NULL) AS all_came FROM people p WHERE $where GROUP BY p.firm_key
+            ) t", $params)->fetch();
     return ['total' => (int) $r['total'], 'came' => (int) $r['came']];
+}
+
+/**
+ * "Bizimle mi?" kırılımı — FİRMA bazında (şubeler tek). Onay ekranı çipleri + panel için.
+ * @return array<string, int> stance anahtarı (null için NONE_VALUE) => firma sayısı
+ */
+function stance_breakdown(array $user, ?int $eventId = null): array
+{
+    [$where, $params] = people_scope($user, 'p', $eventId);
+    $out = [];
+    foreach (q("SELECT p.stance AS v, COUNT(DISTINCT p.firm_key) AS total FROM people p WHERE $where GROUP BY p.stance", $params)->fetchAll() as $r) {
+        $out[$r['v'] ?? NONE_VALUE] = (int) $r['total'];
+    }
+    return $out;
 }
 
 /**
@@ -388,9 +406,13 @@ function people_breakdown(array $user, string $column, ?int $eventId = null): ar
         throw new InvalidArgumentException('Geçersiz kolon');
     }
     [$where, $params] = people_scope($user, 'p', $eventId);
+    // FİRMA bazında: total = o bölge/gruptaki firma sayısı, came = şubeleri (o bölge/grupta) hep gelen firma.
+    // Bir firma birden çok bölgede şube açabilir → her bölgede ayrı sayılır (o bölge filtresinde kartta görünür).
     $rows = q(
-        "SELECT NULLIF(p.$column, '') AS v, COUNT(*) AS total, COALESCE(SUM(p.attended_at IS NOT NULL), 0) AS came
-         FROM people p WHERE $where GROUP BY v ORDER BY v IS NULL, v",
+        "SELECT v, COUNT(*) AS total, COALESCE(SUM(all_came), 0) AS came FROM (
+            SELECT NULLIF(p.$column, '') AS v, p.firm_key, MIN(p.attended_at IS NOT NULL) AS all_came
+            FROM people p WHERE $where GROUP BY v, p.firm_key
+         ) t GROUP BY v ORDER BY v IS NULL, v",
         $params
     )->fetchAll();
     $none = $column === 'region' ? 'Bölgesiz' : 'Grupsuz';

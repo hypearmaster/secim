@@ -157,6 +157,12 @@ $u = unmark_person($onay, $b1);
 check('onaycı geri alma: sadece kendi işaretlediği şubeler', $u['ok'] && !$attOf($b1) && !$attOf($b2) && $attOf($b3));
 $st = set_stance($yon, $b1, 'bizimle');
 check('Bizimle mi? tüm şubelere yazılır', $st['ok'] && q("SELECT COUNT(*) FROM people WHERE id IN (?, ?, ?) AND stance = 'bizimle'", [$b1, $b2, $b3])->fetchColumn() == 3);
+// Firma bazlı sayım (kartlarla birebir): scope_stats + stance_breakdown firma sayar, şube değil
+$ppl = (int) q('SELECT COUNT(*) FROM people WHERE event_id = ?', [$testEvent])->fetchColumn();
+$frm = (int) q('SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id = ?', [$testEvent])->fetchColumn();
+check('scope_stats firma sayar (şube değil)', scope_stats($yon)['total'] === $frm && $frm < $ppl, "firma=$frm kişi=$ppl");
+check('stance_breakdown firma bazlı (ZİNCİR 3 şube = 1 firma)', (stance_breakdown($yon)['bizimle'] ?? 0)
+    === (int) q("SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id = ? AND stance = 'bizimle'", [$testEvent])->fetchColumn());
 check('Bizimle mi? başka şirkete yazılmaz', q('SELECT stance FROM people WHERE id = ?', [$b4])->fetchColumn() === null);
 check('yetkilisiz kayıtlar birleşmez', firm_key('AHMET KAYA', null, '1') !== firm_key('AHMET KAYA', null, '2'));
 
