@@ -55,7 +55,7 @@
 .p-card.is-came { background: var(--success-soft); border-color: #9fd8b1; }
 .p-card.is-came .p-tags .badge { background: var(--surface); border: 1px solid #9fd8b1; }
 .p-name { font-size: 1.05rem; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
-.p-auth { font-size: .92rem; margin-bottom: 6px; overflow-wrap: anywhere; }
+.p-firm { font-size: .9rem; color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; line-height: 1.35; }
 .p-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .p-ref { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 

@@ -230,7 +230,7 @@ function search_people(array $user, array $f, int $limit = 50, int $offset = 0):
     $total = (int) q("SELECT COUNT(*) FROM people p WHERE $where", $params)->fetchColumn();
     $limit = max(1, min(200, $limit));
     $offset = max(0, $offset);
-    $rows = q(PERSON_SELECT . " WHERE $where ORDER BY p.full_name, p.id LIMIT $limit OFFSET $offset", $params)->fetchAll();
+    $rows = q(PERSON_SELECT . " WHERE $where ORDER BY COALESCE(p.authority, p.full_name), p.id LIMIT $limit OFFSET $offset", $params)->fetchAll();
 
     return ['items' => array_map(fn($r) => person_view($r, $user), $rows), 'total' => $total];
 }

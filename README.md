@@ -1,8 +1,12 @@
 # Katılım Takip
 
 Excel'den yüklenen üye listesinde onay ekibinin telefondan **GELDİ** işaretlediği küçük sistem.
-Roller: **Admin** (her şey), **Yönetici** (panel, kayıtlar, dışa aktarma, "Bizimle mi?"),
-**Onay Ekibi** (arama + GELDİ; bölge atanırsa sadece o bölge).
+Roller:
+- **Admin**: her şey — kullanıcılar, liste yükleme, Excel'e aktarma, Bizimkiler yükleme/eşleştirme, denetim kaydı.
+- **Yönetici**: panel, GELDİ kayıtları, "Bizimle mi?" değiştirme, Bizimkiler listesini görme (yükleyemez, indiremez).
+- **Onay Ekibi**: arama + GELDİ; bölge atanırsa sadece o bölge.
+
+Kartlarda önce kişinin adı (yetkili), altında firma görünür.
 
 PHP 8.2 + MySQL/MariaDB + PhpSpreadsheet. Framework yok. Teknik ayrıntı: `SPEC.md`.
 
@@ -39,8 +43,27 @@ Notlar:
 
 ## Kullanıcılar
 
-Kayıt ekranı yok. Hesapları admin, **Kullanıcılar** sayfasından açar. Şifre otomatik üretilir
-ve bir kez gösterilir. Kullanıcılar silinmez, pasife alınır; geçmişte kimin işaretlediği bozulmaz.
+Kayıt ekranı yok. Hesapları admin, **Kullanıcılar** sayfasından açar ve **şifreyi kendisi yazar**
+(en az 8 karakter); şifre değiştirmek için "Düzenle / şifre". Şifre hiçbir yerde gösterilmez ya da
+kaydedilmez. Kullanıcılar silinmez, pasife alınır; geçmişte kimin işaretlediği bozulmaz.
+
+## Bizimkiler
+
+Admin, **Bizimkiler** sayfasından "ad soyad" sütunlu bir isim listesi yükler. Liste aktif üye
+listesiyle eşleştirilir (Türkçe karakter ve büyük/küçük harf farkı önemsiz):
+- **Tam eşleşen** (yetkili adı ya da şahıs firması unvanı) otomatik "Bizimle" olur. Bir kişi birden
+  çok firmanın/şubenin yetkilisiyse hepsi bağlanır.
+- **Benzer** (firma adı kişinin adını taşıyor, tek harf farkı, fazladan ikinci ad) "Kontrol bekleyen"e
+  düşer: **Doğru** / **Hiçbiri** / **+ Firma**.
+- **Bulunamayan** için **Firma bul** ile elle bağlanır (başka grubun listesinde olabilir).
+
+Sayfada bizimkilerden kimin geldiği görünür, admin Excel'e indirebilir. Yeni liste yüklemek
+eskisinin yerine geçer.
+
+## Denetim kaydı
+
+Admin → **Denetim**: giriş/çıkış, hatalı giriş, kullanıcı ve şifre değişiklikleri, liste yükleme,
+Excel indirme, aktif liste değişimi, Bizimkiler işlemleri. GELDİ işaretleri **Kayıtlar** sayfasında.
 
 ## "Bizimle mi?" seçenekleri
 

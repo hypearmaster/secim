@@ -70,7 +70,7 @@ a { color: var(--primary); }
 .badge-success { background: var(--success-soft); color: var(--success); border-color: transparent; }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .badge-warning { background: var(--warning-soft); color: var(--warning); border-color: transparent; }
-.chip { display: inline-flex; align-items: center; min-height: 36px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: .9rem; cursor: pointer; white-space: nowrap; }
+.chip { text-decoration: none; display: inline-flex; align-items: center; min-height: 36px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: .9rem; cursor: pointer; white-space: nowrap; }
 .chip.is-active { background: var(--text); border-color: var(--text); color: #fff; }
 
 /* ---------- Butonlar ---------- */

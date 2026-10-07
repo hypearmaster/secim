@@ -13,9 +13,12 @@ if (is_post()) {
         $fullName = clean_text($_POST['full_name'] ?? '', 120);
         $role = $_POST['role'] ?? '';
         $region = clean_text($_POST['region'] ?? '', 120) ?: null;
+        $pw = (string) ($_POST['new_password'] ?? '');
 
         if (!$username || !valid_username($username)) {
             flash('error', 'Geçersiz kullanıcı adı.');
+        } elseif ($problem = password_problem($pw)) {
+            flash('error', $problem);
         } elseif (!$fullName) {
             flash('error', 'Ad soyad zorunlu.');
         } elseif (!isset(ROLES[$role])) {
@@ -25,10 +28,10 @@ if (is_post()) {
             if ($exists) {
                 flash('error', 'Bu kullanıcı adı zaten kullanılıyor.');
             } else {
-                $pw = generate_password();
                 $hash = password_hash($pw, PASSWORD_DEFAULT);
                 q('INSERT INTO users (username, password_hash, full_name, role, region, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, UTC_TIMESTAMP())', [$username, $hash, $fullName, $role, $region]);
-                flash('success', 'Kullanıcı oluşturuldu. Şifre (bir kez gösterilir): ' . $pw);
+                audit('user_create', $username, ['rol' => ROLES[$role], 'bölge' => $region]);
+                flash('success', "Kullanıcı oluşturuldu: $username");
             }
         }
         redirect('admin/users.php');
@@ -37,12 +40,7 @@ if (is_post()) {
     if ($targetId) {
         $target = q('SELECT * FROM users WHERE id = ?', [$targetId])->fetch();
         if ($target) {
-            if ($action === 'reset_pw') {
-                $pw = generate_password();
-                $hash = password_hash($pw, PASSWORD_DEFAULT);
-                q('UPDATE users SET password_hash = ? WHERE id = ?', [$hash, $targetId]);
-                flash('success', 'Şifre sıfırlandı. Yeni şifre (bir kez gösterilir): ' . $pw);
-            } elseif ($action === 'toggle_active') {
+            if ($action === 'toggle_active') {
                 if ($targetId === $user['id']) {
                     flash('error', 'Kendinizi pasife alamazsınız.');
                 } else {
@@ -53,10 +51,12 @@ if (is_post()) {
                             flash('error', 'Son aktif admin pasife alınamaz.');
                         } else {
                             q('UPDATE users SET is_active = ? WHERE id = ?', [$newActive, $targetId]);
-                            flash('success', $newActive ? 'Kullanıcı aktif edildi.' : 'Kullanıcı pasife alındı.');
+                            audit('user_deactivate', $target['username']);
+                            flash('success', 'Kullanıcı pasife alındı.');
                         }
                     } else {
                         q('UPDATE users SET is_active = ? WHERE id = ?', [$newActive, $targetId]);
+                        audit('user_activate', $target['username']);
                         flash('success', 'Kullanıcı aktif edildi.');
                     }
                 }
@@ -67,21 +67,31 @@ if (is_post()) {
                     $newRole = $_POST['role'] ?? '';
                     $newRegion = clean_text($_POST['region'] ?? '', 120) ?: null;
                     $newName = clean_text($_POST['full_name'] ?? '', 120);
+                    $newPw = (string) ($_POST['new_password'] ?? '');
                     if (!isset(ROLES[$newRole]) || !$newName) {
                         flash('error', 'Geçersiz veri.');
+                    } elseif ($newPw !== '' && ($problem = password_problem($newPw))) {
+                        flash('error', $problem);
+                        redirect('admin/users.php?edit=' . $targetId);
+                    } elseif ($newRole !== $target['role'] && $target['role'] === 'admin'
+                        && (int) q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn() <= 1) {
+                        // Önce reddedilecek durumu kontrol et: hiçbir şey (şifre dahil) yarım değişmesin
+                        flash('error', 'Son aktif adminin rolü düşürülemez.');
                     } else {
-                        if ($newRole !== $target['role']) {
-                            $activeAdmins = (int) q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn();
-                            if ($activeAdmins <= 1 && $target['role'] === 'admin' && $newRole !== 'admin') {
-                                flash('error', 'Son aktif adminin rolü düşürülemez.');
-                            } else {
-                                q('UPDATE users SET full_name = ?, role = ?, region = ? WHERE id = ?', [$newName, $newRole, $newRegion, $targetId]);
-                                flash('success', 'Kullanıcı güncellendi.');
-                            }
-                        } else {
-                            q('UPDATE users SET full_name = ?, region = ? WHERE id = ?', [$newName, $newRegion, $targetId]);
-                            flash('success', 'Kullanıcı güncellendi.');
+                        q('UPDATE users SET full_name = ?, role = ?, region = ? WHERE id = ?', [$newName, $newRole, $newRegion, $targetId]);
+                        $changes = array_filter([
+                            'ad' => $newName !== $target['full_name'] ? $newName : null,
+                            'rol' => $newRole !== $target['role'] ? ROLES[$newRole] : null,
+                            'bölge' => $newRegion !== $target['region'] ? ($newRegion ?? '(tümü)') : null,
+                        ]);
+                        if ($changes) {
+                            audit('user_update', $target['username'], $changes);
                         }
+                        if ($newPw !== '') {
+                            q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($newPw, PASSWORD_DEFAULT), $targetId]);
+                            audit('user_password', $target['username']);
+                        }
+                        flash('success', 'Kullanıcı güncellendi' . ($newPw !== '' ? ', şifre değişti.' : '.'));
                     }
                 }
             }
@@ -154,11 +164,13 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                 </datalist>
                 <small>Onaycı için bölge seçilirse sadece o bölgeyi görür. Boş = tüm bölgeler.</small>
             </div>
-            <?php if (!$editUser): ?>
-                <small class="muted">Şifre otomatik üretilecek ve bir kez gösterilecektir.</small>
-            <?php endif; ?>
+            <div class="field">
+                <span><?= $editUser ? 'Yeni şifre' : 'Şifre' ?></span>
+                <input class="input" type="password" name="new_password" minlength="8" maxlength="72" autocomplete="new-password"<?= $editUser ? '' : ' required' ?>>
+                <small><?= $editUser ? 'Boş bırakırsanız şifre değişmez. ' : '' ?>En az 8 karakter. Kullanıcıya siz iletin; şifre hiçbir yerde gösterilmez ya da kaydedilmez.</small>
+            </div>
             <div class="row">
-                <button type="submit" class="btn"><?= $editUser ? 'Güncelle' : 'Oluştur' ?></button>
+                <button type="submit" class="btn btn-primary"><?= $editUser ? 'Güncelle' : 'Oluştur' ?></button>
                 <?php if ($editUser): ?>
                     <a class="btn btn-ghost" href="<?= e(url('admin/users.php')) ?>">İptal</a>
                 <?php endif; ?>
@@ -203,13 +215,7 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                     <td>
                         <div class="row" style="gap: 4px;">
                             <?php if (!$editUser || $editUser['id'] !== $u['id']): ?>
-                                <a class="btn btn-sm" href="<?= e(url('admin/users.php?edit=' . $u['id'])) ?>">Düzenle</a>
-                                <form method="post" class="inline" onsubmit="return confirm('Şifre sıfırlansın mı? Yeni şifre sadece bir kez gösterilir.');">
-                                    <?= csrf_field() ?>
-                                    <input type="hidden" name="action" value="reset_pw">
-                                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
-                                    <button type="submit" class="btn btn-sm">Şifre Sıfırla</button>
-                                </form>
+                                <a class="btn btn-sm" href="<?= e(url('admin/users.php?edit=' . $u['id'])) ?>">Düzenle / şifre</a>
                                 <form method="post" class="inline" onsubmit="return confirm('Durum değiştirilsin mi?');">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="action" value="toggle_active">

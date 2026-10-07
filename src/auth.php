@@ -16,8 +16,11 @@ const PERMISSIONS = [
     'unmark_any'    => ['admin', 'yonetici'],           // herkesin işaretini geri al (onayci: sadece kendi + süre içinde)
     'view_all'      => ['admin', 'yonetici'],           // bölge kısıtı yok
     'dashboard'     => ['admin', 'yonetici'],
-    'export'        => ['admin', 'yonetici'],
-    'view_log'      => ['admin', 'yonetici'],
+    'export'        => ['admin'],                       // dışarı veri çıkışı sadece admin
+    'view_log'      => ['admin', 'yonetici'],           // GELDİ işlem kayıtları
+    'view_audit'    => ['admin'],                       // denetim kaydı (giriş, kullanıcı, liste, export)
+    'supporters'    => ['admin', 'yonetici'],           // Bizimkiler listesini görür
+    'manage_supporters' => ['admin'],                   // Bizimkiler yükler / eşleştirir
     'stance'        => ['admin', 'yonetici'],           // "Bizimle mi?" sütununu görür ve değiştirir
     'import'        => ['admin'],
     'manage_events' => ['admin'],
@@ -120,6 +123,7 @@ function attempt_login(string $username, string $password): string
     $byUser = (int) q("SELECT COUNT(*) FROM login_attempts WHERE username = ? AND $window", [$username])->fetchColumn();
     $byIp = $ip === null ? 0 : (int) q("SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND $window", [$ip])->fetchColumn();
     if ($byUser >= (int) config('login_max_per_user', 5) || $byIp >= (int) config('login_max_per_ip', 30)) {
+        audit('login_locked', $username);
         return 'locked';
     }
 
@@ -130,6 +134,7 @@ function attempt_login(string $username, string $password): string
 
     if (!$valid) {
         q('INSERT INTO login_attempts (username, ip, created_at) VALUES (?, ?, UTC_TIMESTAMP())', [$username, $ip]);
+        audit('login_failed', $username, $row && !(int) $row['is_active'] ? ['sebep' => 'pasif kullanıcı'] : []);
         return 'invalid';
     }
 
@@ -142,6 +147,7 @@ function attempt_login(string $username, string $password): string
     session_regenerate_id(true);
     $_SESSION = ['uid' => (int) $row['id']];
     csrf_token();
+    audit('login', $username, [], (int) $row['id']);
     return 'ok';
 }
 
@@ -163,7 +169,19 @@ function valid_username(string $u): bool
     return (bool) preg_match('/^[a-zA-Z0-9._-]{3,64}$/', $u);
 }
 
-/** Okunaklı rastgele şifre (karışan 0/O, 1/l/I yok). */
+/** Admin'in belirlediği şifre kuralı. Hata mesajı ya da null döner. */
+function password_problem(string $pw): ?string
+{
+    if (mb_strlen($pw) < 8) {
+        return 'Şifre en az 8 karakter olmalı.';
+    }
+    if (mb_strlen($pw) > 72) {
+        return 'Şifre en fazla 72 karakter olabilir.';
+    }
+    return null;
+}
+
+/** Okunaklı rastgele şifre (karışan 0/O, 1/l/I yok). Sadece komut satırı kurulumunda. */
 function generate_password(int $len = 10): string
 {
     $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';

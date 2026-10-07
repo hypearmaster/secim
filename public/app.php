@@ -57,7 +57,7 @@ render_header('Onay', 'app', ['onay.css']);
     <div class="onay-search">
       <svg class="onay-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input type="search" id="q" class="input" inputmode="search" enterkeyhint="search" autocomplete="off"
-             autocorrect="off" spellcheck="false" placeholder="Unvan, yetkili ya da sicil no" aria-label="Ara">
+             autocorrect="off" spellcheck="false" placeholder="Ad soyad, firma ya da sicil no" aria-label="Ara">
     </div>
 
     <div class="seg" role="group" aria-label="Durum">

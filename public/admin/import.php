@@ -137,6 +137,12 @@ if (is_post()) {
             redirect('admin/import.php?step=preview');
         }
 
+        audit('import', $imp['original'], [
+            'liste' => $mode === 'new' ? $eventName : $active['name'],
+            'mod' => $mode === 'new' ? 'yeni liste' : 'aktif listeye ekle',
+            'eklenen' => count($built['people']), 'atlanan' => $built['skipped'],
+            'alınan sütunlar' => array_values(array_map(fn($i) => $sheet['header'][$i], array_keys(array_filter($mapping, fn($m) => $m !== 'ignore')))),
+        ]);
         drop_import($dir);
         flash('success', count($built['people']) . ' kişi eklendi' . ($built['skipped'] ? ", {$built['skipped']} satır adı boş olduğu için atlandı" : '') . '.');
         redirect('admin/index.php');

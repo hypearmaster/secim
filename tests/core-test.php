@@ -48,6 +48,7 @@ $yon = make_test_user("{$tag}_yon", 'yonetici', null);        // tüm bölgeler
 $testEvent = create_event("__TEST__ $tag", $yon['id']);       // aktif yapar
 register_shutdown_function(function () use ($testEvent, $prevEvent, $onay, $yon) {
     q('DELETE FROM attendance_log WHERE event_id = ?', [$testEvent]);
+    q('DELETE FROM supporters WHERE event_id = ?', [$testEvent]); // supporter_people CASCADE
     q('DELETE FROM people WHERE event_id = ?', [$testEvent]);
     q('DELETE FROM events WHERE id = ?', [$testEvent]);
     q('DELETE FROM users WHERE id IN (?, ?)', [$onay['id'], $yon['id']]);
@@ -128,6 +129,42 @@ check('stance filtresi', in_array($merkezId, $ids, true) && count($ids) >= 1);
 $s4 = set_stance($yon, $merkezId, null);
 check('stance temizlenir', $s4['ok'] && $s4['person']['stance']['value'] === null);
 check('names_only doğum tarihi/yerini atar', names_only('MEHMET GENÇ-06.01.1980-ÖMERLİ,ORHAN DOĞAN-10.02.1963-ŞİRAN') === 'MEHMET GENÇ, ORHAN DOĞAN');
+
+// Bizimkiler (isim listesi eşleştirme)
+require APP_ROOT . '/src/spreadsheet.php';
+require APP_ROOT . '/src/supporters.php';
+$p1 = insert_person($testEvent, null, ['full_name' => 'ÇAĞLAR GIDA LTD ŞTİ', 'authority' => 'Mehmet Genç, Orhan Doğan', 'region' => 'Merkez']);
+$p2 = insert_person($testEvent, null, ['full_name' => 'GENÇ TURİZM A.Ş.', 'authority' => 'Mehmet Genç', 'region' => 'Kuzey']);
+$p3 = insert_person($testEvent, null, ['full_name' => 'AHMET YILDIRIM İNŞAAT TİCARET LTD ŞTİ', 'region' => 'Merkez']);
+$p4 = insert_person($testEvent, null, ['full_name' => 'ABDULLAH BOYNUKARA', 'region' => 'Merkez']);
+$p5 = insert_person($testEvent, null, ['full_name' => 'SELİN KAYA', 'authority' => 'Selin Kaya', 'region' => 'Merkez']);
+$idx = supporter_index($testEvent);
+[$st, $ids] = match_name('mehmet GENÇ', $idx);
+check('tam eşleşme, iki firmanın yetkilisi → ikisi de', $st === 'matched' && count($ids) === 2 && in_array($p1, $ids) && in_array($p2, $ids));
+check('firma adı kişinin adını taşıyor → tahmin', match_name('Ahmet Yıldırım', $idx) === ['suggested', [$p3]]);
+check('tek harf farkı → tahmin', match_name('Abdullah Boynikara', $idx) === ['suggested', [$p4]]);
+check('ikinci ad fazla → tahmin', match_name('Selin Ayşe Kaya', $idx)[0] === 'suggested');
+check('sadece soyad tutuyor → bulunamadı', match_name('Hasan Genç', $idx)[0] === 'none');
+$s = import_supporters($testEvent, ['Mehmet Genç', 'Ahmet Yıldırım', 'Hiç Olmayan Kişi'], $yon['id']);
+check('yükleme sayımı', $s === ['matched' => 1, 'suggested' => 1, 'none' => 1], json_encode($s));
+$stanceOf = fn(int $id) => q('SELECT stance FROM people WHERE id = ?', [$id])->fetchColumn();
+check('tam eşleşen "Bizimle" oldu', $stanceOf($p1) === 'bizimle' && $stanceOf($p2) === 'bizimle');
+check('tahmin onaysız "Bizimle" olmaz', $stanceOf($p3) === null);
+$sugg = q("SELECT * FROM supporters WHERE event_id = ? AND status = 'suggested'", [$testEvent])->fetch();
+confirm_supporter($sugg);
+check('tahmin onaylanınca "Bizimle"', $stanceOf($p3) === 'bizimle');
+$mg = q("SELECT * FROM supporters WHERE event_id = ? AND name = 'Mehmet Genç'", [$testEvent])->fetch();
+unlink_supporter($mg, $p2);
+check('bağ kaldırılınca "Bizimle" geri alınır', $stanceOf($p2) === null && $stanceOf($p1) === 'bizimle');
+$none = q("SELECT * FROM supporters WHERE event_id = ? AND status = 'none'", [$testEvent])->fetch();
+check('başka etkinliğin kişisi bağlanamaz', !link_supporter($none, (int) q('SELECT id FROM people WHERE event_id <> ? LIMIT 1', [$testEvent])->fetchColumn() ?: 0));
+check('elle bağlama', link_supporter($none, $p5) && $stanceOf($p5) === 'bizimle');
+q('UPDATE people SET stance = ? WHERE id = ?', ['bizimle', $p4]); // elle "Bizimle" (listeden bağımsız)
+clear_supporters($testEvent);
+check('liste silinince verdiği işaretler kalkar', $stanceOf($p1) === null && $stanceOf($p3) === null && $stanceOf($p5) === null);
+check('elle verilen "Bizimle" korunur', $stanceOf($p4) === 'bizimle');
+check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
+q("DELETE FROM audit_log WHERE target = '__test__'");
 
 echo $fail ? "\n$fail test BAŞARISIZ\n" : "\nTüm testler geçti\n";
 exit($fail ? 1 : 0);

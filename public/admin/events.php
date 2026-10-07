@@ -14,6 +14,7 @@ if (is_post()) {
             flash('error', 'Etkinlik adı zorunlu.');
         } else {
             create_event($name, $user['id'], false);
+            audit('event_create', $name);
             flash('success', 'Boş etkinlik oluşturuldu.');
         }
         redirect('admin/events.php');
@@ -23,7 +24,9 @@ if (is_post()) {
         $target = q('SELECT * FROM events WHERE id = ?', [$targetId])->fetch();
         if ($target) {
             if ($action === 'activate') {
+                $previous = active_event()['name'] ?? null; // değişiklikten ÖNCE oku
                 activate_event($targetId);
+                audit('event_activate', $target['name'], ['önceki' => $previous]);
                 flash('success', 'Etkinlik aktif edildi.');
             } elseif ($action === 'rename') {
                 $name = clean_text($_POST['name'] ?? '', 160);
@@ -31,6 +34,7 @@ if (is_post()) {
                     flash('error', 'Etkinlik adı zorunlu.');
                 } else {
                     q('UPDATE events SET name = ? WHERE id = ?', [$name, $targetId]);
+                    audit('event_rename', $name, ['eski ad' => $target['name']]);
                     flash('success', 'Etkinlik yeniden adlandırıldı.');
                 }
             }

@@ -151,6 +151,10 @@ function read_sheet(string $path, string $ext): array
             continue;
         }
         if ($header === null) {
+            // Tek hücreli üst satır ("İSİM LİSTESİ" gibi tablo başlığı) sütun başlığı değildir
+            if ($maxCol > 1 && count(array_filter($row, fn($v) => $v !== null)) === 1) {
+                continue;
+            }
             $header = array_map(fn($h, $i) => $h ?? ('Sütun ' . ($i + 1)), $row, array_keys($row));
             continue;
         }
@@ -253,7 +257,8 @@ function export_xlsx(array $user, array $event, array $filters): never
 {
     $withStance = can('stance', $user);
     [$where, $params] = people_where($user, $filters, (int) $event['id']);
-    $rows = q(PERSON_SELECT . " WHERE $where ORDER BY p.full_name, p.id", $params)->fetchAll();
+    $rows = q(PERSON_SELECT . " WHERE $where ORDER BY COALESCE(p.authority, p.full_name), p.id", $params)->fetchAll();
+    audit('export', $event['name'], ['satır' => count($rows), 'filtre' => array_filter($filters, fn($v) => $v !== '' && $v !== 'all')]);
 
     $book = new Spreadsheet();
     $book->getProperties()->setCreator((string) config('app_name', 'Katılım Takip'))->setTitle($event['name']);
@@ -261,7 +266,7 @@ function export_xlsx(array $user, array $event, array $filters): never
     // --- Liste
     $sheet = $book->getActiveSheet();
     $sheet->setTitle('Liste');
-    $titles = ['Sıra', 'Sicil No', 'Unvan', 'Yetkili', 'İlçe', 'Grup'];
+    $titles = ['Sıra', 'Ad Soyad (Yetkili)', 'Firma (Unvan)', 'Sicil No', 'İlçe', 'Grup'];
     if ($withStance) {
         $titles[] = 'Bizimle mi?';
     }
@@ -270,7 +275,7 @@ function export_xlsx(array $user, array $event, array $filters): never
 
     foreach ($rows as $n => $p) {
         $r = $n + 2;
-        $vals = [$n + 1, $p['ref_no'], $p['full_name'], $p['authority'], $p['region'], $p['group_name']];
+        $vals = [$n + 1, $p['authority'] ?? $p['full_name'], $p['authority'] ? $p['full_name'] : '', $p['ref_no'], $p['region'], $p['group_name']];
         if ($withStance) {
             $vals[] = $p['stance'] === null ? '' : stance_view($p['stance'])['label'];
         }
@@ -283,8 +288,8 @@ function export_xlsx(array $user, array $event, array $filters): never
     foreach (range(1, count($titles)) as $i) {
         $sheet->getColumnDimensionByColumn($i)->setAutoSize(true);
     }
+    $sheet->getColumnDimension('B')->setAutoSize(false)->setWidth(36);
     $sheet->getColumnDimension('C')->setAutoSize(false)->setWidth(48);
-    $sheet->getColumnDimension('D')->setAutoSize(false)->setWidth(36);
 
     // --- Özet
     $sum = $book->createSheet();

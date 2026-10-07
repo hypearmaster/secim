@@ -54,6 +54,9 @@
 
   function goLogin() { window.location.href = cfg.login; }
 
+  // Önce kişinin adı (yetkili), sonra firma. Yetkilisi yazmayan şahıs firmasında unvan zaten kişi adıdır.
+  function displayName(p) { return p.authority || p.full_name; }
+
   function post(url, data) {
     var body = new URLSearchParams(data);
     var headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' };
@@ -93,13 +96,8 @@
     c.setAttribute('data-id', p.id);
 
     var main = el('div', 'p-main');
-    main.appendChild(el('h3', 'p-name', p.full_name));
-    if (p.authority) {
-      var a = el('div', 'p-auth');
-      a.appendChild(el('span', 'muted', 'Yetkili: '));
-      a.appendChild(document.createTextNode(p.authority));
-      main.appendChild(a);
-    }
+    main.appendChild(el('h3', 'p-name', displayName(p)));
+    if (p.authority) main.appendChild(el('div', 'p-firm', p.full_name));
     var tags = el('div', 'p-tags');
     if (p.region) tags.appendChild(el('span', 'badge', p.region));
     if (p.group_name) tags.appendChild(el('span', 'badge', p.group_name));
@@ -112,7 +110,7 @@
     if (!p.attended) {
       var b = el('button', 'btn btn-geldi', 'GELDİ');
       b.type = 'button';
-      b.setAttribute('aria-label', p.full_name + ' geldi olarak işaretle');
+      b.setAttribute('aria-label', displayName(p) + ' geldi olarak işaretle');
       b.addEventListener('click', function () { mark(p, 'mark', b); });
       act.appendChild(b);
     } else {
@@ -124,7 +122,7 @@
         var u = el('button', 'btn btn-sm btn-ghost p-undo', 'Geri al');
         u.type = 'button';
         u.addEventListener('click', function () {
-          if (window.confirm(p.full_name + ' için "geldi" işareti geri alınsın mı?')) mark(p, 'unmark', u);
+          if (window.confirm(displayName(p) + ' için "geldi" işareti geri alınsın mı?')) mark(p, 'unmark', u);
         });
         act.appendChild(u);
       }
@@ -150,7 +148,7 @@
         if (res.ok) {
           if (action === 'mark') {
             if (navigator.vibrate) navigator.vibrate(30);
-            toast('✓ ' + res.person.full_name + ' geldi', 'success');
+            toast('✓ ' + displayName(res.person) + ' geldi', 'success');
           } else {
             toast('İşaret geri alındı');
           }

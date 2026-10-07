@@ -86,3 +86,43 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   KEY ix_attempts_user (username, created_at),
   KEY ix_attempts_ip   (ip, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- Denetim kaydı: yönetim işlemleri (giriş, kullanıcı, liste, dışa aktarma...). Şifre ASLA yazılmaz.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id     INT UNSIGNED  NULL COMMENT 'NULL = giriş yapmamış (örn. hatalı giriş)',
+  action      VARCHAR(40)   NOT NULL,
+  target      VARCHAR(190)  NULL COMMENT 'Kısa özet: kullanıcı adı, dosya adı, liste adı',
+  detail      TEXT          NULL COMMENT 'JSON ayrıntı',
+  ip          VARBINARY(16) NULL,
+  created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY ix_audit_time (created_at),
+  KEY ix_audit_action (action, created_at),
+  KEY ix_audit_user (user_id, created_at),
+  CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- "Bizimkiler": bizimle olan kişilerin isim listesi ve üye listesiyle eşleşmesi (etkinliğe bağlı).
+CREATE TABLE IF NOT EXISTS supporters (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  event_id    INT UNSIGNED NOT NULL,
+  name        VARCHAR(160) NOT NULL,
+  search_key  VARCHAR(255) NOT NULL DEFAULT '',
+  status      ENUM('matched','suggested','none') NOT NULL DEFAULT 'none'
+              COMMENT 'matched = onaylı eşleşme; suggested = sistem tahmini, admin onayı bekler; none = bulunamadı',
+  created_by  INT UNSIGNED NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY ix_sup_event (event_id, status),
+  CONSTRAINT fk_sup_event FOREIGN KEY (event_id) REFERENCES events(id),
+  CONSTRAINT fk_sup_user  FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- Bir isim birden çok firmanın yetkilisi olabilir (ya da tahmin birden çok aday verir).
+CREATE TABLE IF NOT EXISTS supporter_people (
+  supporter_id INT UNSIGNED NOT NULL,
+  person_id    INT UNSIGNED NOT NULL,
+  PRIMARY KEY (supporter_id, person_id),
+  KEY ix_sp_person (person_id),
+  CONSTRAINT fk_sp_sup    FOREIGN KEY (supporter_id) REFERENCES supporters(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sp_person FOREIGN KEY (person_id)    REFERENCES people(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;

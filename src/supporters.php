@@ -1,0 +1,272 @@
+<?php
+declare(strict_types=1);
+
+/*
+ * "Bizimkiler": bizimle olan kişilerin isim listesi, aktif listedeki üyelerle eşleştirilir.
+ *  - Tam eşleşme (yetkili adı ya da unvan, Türkçe karaktersiz)  -> matched, kişiler "Bizimle" olur
+ *  - Benzer (ad+soyad bir harf farkla / fazladan ikinci ad)     -> suggested, admin onaylar
+ *  - Yok                                                         -> none, admin elle bağlar
+ * Bir isim birden çok firmanın yetkilisi olabilir: hepsi bağlanır.
+ */
+
+/** Eşleşen kişilere yazılacak "Bizimle mi?" değeri (config'de yoksa stance yazılmaz). */
+function supporter_stance(): ?string
+{
+    $key = (string) config('supporter_stance', 'bizimle');
+    return isset(stance_options()[$key]) ? $key : null;
+}
+
+/** İsim listesi dosyasından isimleri çıkarır (başlığa göre ad sütunu, yoksa en çok yazı olan sütun). */
+function read_name_list(string $path, string $ext): array
+{
+    $sheet = read_sheet($path, $ext);
+    $col = null;
+    foreach ($sheet['header'] as $i => $h) {
+        if (in_array(guess_field($h), ['full_name', 'authority'], true)) {
+            $col = $i;
+            break;
+        }
+    }
+    if ($col === null) { // başlık tanınmadı: sayı olmayan en dolu sütun
+        $best = -1;
+        foreach (array_keys($sheet['header']) as $i) {
+            $n = count(array_filter($sheet['rows'], fn($r) => ($r[$i] ?? null) !== null && !is_numeric($r[$i])));
+            if ($n > $best) {
+                [$best, $col] = [$n, $i];
+            }
+        }
+    }
+    $names = [];
+    foreach ($sheet['rows'] as $r) {
+        $n = clean_text($r[$col] ?? null, 160);
+        if ($n !== null && !is_numeric($n) && !isset($names[search_key($n)])) {
+            $names[search_key($n)] = $n; // dosya içi tekrar bir kez
+        }
+    }
+    return array_values($names);
+}
+
+/** İki kelime "aynı" mı: eşit ya da (uzun kelimede) tek harf farkı. */
+function similar_word(string $a, string $b): bool
+{
+    if ($a === $b) {
+        return true;
+    }
+    return min(strlen($a), strlen($b)) >= 5 && levenshtein($a, $b) <= 1;
+}
+
+/**
+ * Bir ismin aday kişileri.
+ * @param array<string, list<int>> $index search_key => kişi id'leri
+ * @return array{0:'matched'|'suggested'|'none', 1:list<int>}
+ */
+function match_name(string $name, array $index): array
+{
+    $k = search_key($name);
+    if (isset($index[$k])) {
+        return ['matched', array_values(array_unique($index[$k]))];
+    }
+    $w = explode(' ', $k);
+    if (count($w) < 2) {
+        return ['none', []];
+    }
+    $hits = [];
+    foreach ($index as $key => $ids) {
+        // Firma sahibinin adını taşıyor: "AHMET YILDIRIM İNŞAAT LTD ŞTİ" içinde "ahmet yildirim"
+        if (str_contains(" $key ", " $k ")) {
+            array_push($hits, ...$ids);
+            continue;
+        }
+        $v = explode(' ', $key);
+        if (count($v) < 2) {
+            continue;
+        }
+        // Soyad (son kelime) ve ilk ad benzer olmalı: "Ahmet Cemil Sönmez" ~ "Ahmet Sönmez",
+        // "Abdullah Boynikara" ~ "Abdullah Boynukara". Sadece soyad tutması yetmez.
+        if (similar_word(end($w), end($v)) && similar_word($w[0], $v[0])) {
+            array_push($hits, ...$ids);
+        }
+    }
+    $hits = array_values(array_unique($hits));
+    return $hits ? ['suggested', $hits] : ['none', []];
+}
+
+/** Aktif listedeki kişilerden arama indeksi: her yetkili adı ve unvan ayrı anahtar. */
+function supporter_index(int $eventId): array
+{
+    $index = [];
+    foreach (q('SELECT id, full_name, authority FROM people WHERE event_id = ?', [$eventId])->fetchAll() as $p) {
+        $keys = [search_key($p['full_name'])];
+        foreach (explode(',', (string) $p['authority']) as $a) {
+            $keys[] = search_key($a);
+        }
+        foreach (array_unique(array_filter($keys)) as $key) {
+            $index[$key][] = (int) $p['id'];
+        }
+    }
+    return $index;
+}
+
+/** Bağlı kişilerin stance'ini "Bizimle" yapar (sadece onaylı eşleşmede çağrılır). */
+function apply_supporter_stance(array $personIds): void
+{
+    $stance = supporter_stance();
+    if ($stance === null || !$personIds) {
+        return;
+    }
+    $in = implode(',', array_fill(0, count($personIds), '?'));
+    q("UPDATE people SET stance = ? WHERE id IN ($in)", [$stance, ...$personIds]);
+}
+
+/** Artık hiçbir onaylı Bizimkiler kaydına bağlı olmayan kişilerin "Bizimle" işaretini kaldırır. */
+function release_supporter_stance(array $personIds): void
+{
+    $stance = supporter_stance();
+    foreach (array_unique($personIds) as $pid) {
+        $still = (int) q("SELECT COUNT(*) FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
+                          WHERE sp.person_id = ? AND s.status = 'matched'", [$pid])->fetchColumn();
+        if (!$still && $stance !== null) {
+            q('UPDATE people SET stance = NULL WHERE id = ? AND stance = ?', [$pid, $stance]);
+        }
+    }
+}
+
+/**
+ * Listeyi aktif etkinliğe yükler; aynı etkinliğin eski Bizimkiler listesinin yerini alır.
+ * @return array{matched:int, suggested:int, none:int}
+ */
+function import_supporters(int $eventId, array $names, int $userId): array
+{
+    $index = supporter_index($eventId);
+    $stats = ['matched' => 0, 'suggested' => 0, 'none' => 0];
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        clear_supporters($eventId);
+        foreach ($names as $name) {
+            [$status, $ids] = match_name($name, $index);
+            q('INSERT INTO supporters (event_id, name, search_key, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+                [$eventId, $name, search_key($name), $status, $userId]);
+            $sid = (int) $pdo->lastInsertId();
+            foreach ($ids as $pid) {
+                q('INSERT INTO supporter_people (supporter_id, person_id) VALUES (?, ?)', [$sid, $pid]);
+            }
+            if ($status === 'matched') {
+                apply_supporter_stance($ids);
+            }
+            $stats[$status]++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return $stats;
+}
+
+/** Etkinliğin Bizimkiler listesini siler; onların verdiği "Bizimle" işaretlerini geri alır. Transaction içinde çağrılabilir. */
+function clear_supporters(int $eventId): void
+{
+    $pids = q("SELECT sp.person_id FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
+               WHERE s.event_id = ? AND s.status = 'matched'", [$eventId])->fetchAll(PDO::FETCH_COLUMN);
+    q('DELETE FROM supporters WHERE event_id = ?', [$eventId]); // supporter_people CASCADE
+    release_supporter_stance(array_map('intval', $pids));
+}
+
+/** Kayıt bu etkinliğe mi ait (başka etkinliğin id'siyle oynanmasın)? */
+function find_supporter(int $eventId, int $id): ?array
+{
+    $s = q('SELECT * FROM supporters WHERE id = ? AND event_id = ?', [$id, $eventId])->fetch();
+    return $s ?: null;
+}
+
+function supporter_person_ids(int $supporterId): array
+{
+    return array_map('intval', q('SELECT person_id FROM supporter_people WHERE supporter_id = ?', [$supporterId])->fetchAll(PDO::FETCH_COLUMN));
+}
+
+/** Tahmini onayla: bağlı adayların hepsi "Bizimle" olur. */
+function confirm_supporter(array $sup): void
+{
+    q("UPDATE supporters SET status = 'matched' WHERE id = ?", [$sup['id']]);
+    apply_supporter_stance(supporter_person_ids((int) $sup['id']));
+}
+
+/** Kişi bağla (elle seçim). Kişi aynı etkinlikte olmalı. */
+function link_supporter(array $sup, int $personId): bool
+{
+    $ok = q('SELECT 1 FROM people WHERE id = ? AND event_id = ?', [$personId, $sup['event_id']])->fetchColumn();
+    if (!$ok) {
+        return false;
+    }
+    q('INSERT IGNORE INTO supporter_people (supporter_id, person_id) VALUES (?, ?)', [$sup['id'], $personId]);
+    q("UPDATE supporters SET status = 'matched' WHERE id = ?", [$sup['id']]);
+    apply_supporter_stance(supporter_person_ids((int) $sup['id']));
+    return true;
+}
+
+/** Bir bağı kaldır; hiç bağ kalmazsa kayıt "bulunamadı"ya döner. */
+function unlink_supporter(array $sup, int $personId): void
+{
+    q('DELETE FROM supporter_people WHERE supporter_id = ? AND person_id = ?', [$sup['id'], $personId]);
+    if (!supporter_person_ids((int) $sup['id'])) {
+        q("UPDATE supporters SET status = 'none' WHERE id = ?", [$sup['id']]);
+    }
+    release_supporter_stance([$personId]);
+}
+
+/** Tahmini reddet: tüm adaylar kalkar, "bulunamadı" olur. */
+function reject_supporter(array $sup): void
+{
+    $pids = supporter_person_ids((int) $sup['id']);
+    q('DELETE FROM supporter_people WHERE supporter_id = ?', [$sup['id']]);
+    q("UPDATE supporters SET status = 'none' WHERE id = ?", [$sup['id']]);
+    release_supporter_stance($pids);
+}
+
+/**
+ * Liste ekranı için kayıtlar + bağlı kişiler (geldi bilgisiyle).
+ * @return list<array{id:int,name:string,status:string,people:list<array>}>
+ */
+function list_supporters(int $eventId, string $filter = ''): array
+{
+    $rows = q('SELECT id, name, status FROM supporters WHERE event_id = ? ORDER BY name', [$eventId])->fetchAll();
+    $people = [];
+    foreach (q("SELECT sp.supporter_id, p.id, p.full_name, p.authority, p.region, p.ref_no, p.attended_at, u.full_name AS attended_by_name
+                FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
+                JOIN people p ON p.id = sp.person_id LEFT JOIN users u ON u.id = p.attended_by
+                WHERE s.event_id = ? ORDER BY p.full_name", [$eventId])->fetchAll() as $p) {
+        $people[(int) $p['supporter_id']][] = $p;
+    }
+    $out = [];
+    foreach ($rows as $r) {
+        $r['id'] = (int) $r['id'];
+        $r['people'] = $people[$r['id']] ?? [];
+        $came = $r['status'] === 'matched' && array_filter($r['people'], fn($p) => $p['attended_at'] !== null);
+        $r['came'] = (bool) $came;
+        $keep = match ($filter) {
+            'came'    => $r['came'],
+            'pending' => $r['status'] === 'matched' && !$r['came'],
+            'review'  => $r['status'] !== 'matched',
+            default   => true,
+        };
+        if ($keep) {
+            $out[] = $r;
+        }
+    }
+    return $out;
+}
+
+/** @return array{total:int, matched:int, suggested:int, none:int, came:int} */
+function supporter_stats(int $eventId): array
+{
+    $s = ['total' => 0, 'matched' => 0, 'suggested' => 0, 'none' => 0, 'came' => 0];
+    foreach (q('SELECT status, COUNT(*) n FROM supporters WHERE event_id = ? GROUP BY status', [$eventId])->fetchAll() as $r) {
+        $s[$r['status']] = (int) $r['n'];
+        $s['total'] += (int) $r['n'];
+    }
+    $s['came'] = (int) q("SELECT COUNT(DISTINCT s.id) FROM supporters s JOIN supporter_people sp ON sp.supporter_id = s.id
+                          JOIN people p ON p.id = sp.person_id
+                          WHERE s.event_id = ? AND s.status = 'matched' AND p.attended_at IS NOT NULL", [$eventId])->fetchColumn();
+    return $s;
+}
