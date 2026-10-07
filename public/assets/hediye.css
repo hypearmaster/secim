@@ -1,0 +1,89 @@
+/* Hediye ekranı — telefonda tek elle kullanım. app.css'in üstüne (onay.css'ten sadeleştirildi). */
+
+.topbar { position: static; }
+
+.gift { padding-bottom: 96px; }
+
+.gift-head {
+  position: sticky; top: 0; z-index: 15;
+  background: var(--bg);
+  padding: 12px 16px 10px;
+  max-width: 1100px; margin: 0 auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.gift-count { display: flex; align-items: center; gap: 12px; font-size: .95rem; margin-bottom: 10px; }
+.gift-count > div:first-child { white-space: nowrap; }
+.gift-count strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; color: var(--success); }
+.gift-count .progress { flex: 1; }
+.gift-count .progress > span { transition: width .3s ease; }
+
+.gift-search { position: relative; }
+.gift-search .input { padding-left: 42px; min-height: 52px; font-size: 17px; border-radius: var(--radius); }
+.gift-search-icon { position: absolute; left: 14px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+
+.gift-head-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.gift-head-row .seg { flex: 1; margin-top: 0; }
+.gift-head-row #gift-add-open { white-space: nowrap; }
+
+/* Durum seçici */
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.seg-btn { min-height: 40px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.seg-btn.is-active { background: var(--text); color: #fff; }
+
+.result-info { max-width: 1100px; margin: 8px auto 0; padding: 0 16px; font-size: .85rem; }
+
+/* Liste */
+.gift-list { max-width: 1100px; margin: 0 auto; padding: 8px 16px; display: grid; gap: 10px; }
+.gift.is-loading .gift-list { opacity: .55; transition: opacity .15s; }
+
+.g-card {
+  display: grid; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px; box-shadow: var(--shadow);
+}
+.g-card.is-given { background: var(--success-soft); border-color: #9fd8b1; }
+.g-main { min-width: 0; }
+.g-name { font-size: 1.05rem; font-weight: 700; margin: 0; overflow-wrap: anywhere; }
+.g-note { font-size: .9rem; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; line-height: 1.35; }
+
+.g-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.btn-verdik {
+  flex: 1; min-width: 0; min-height: 56px; font-size: 1.15rem; letter-spacing: .04em;
+  background: var(--surface); color: var(--success); border: 2px solid var(--success); border-radius: var(--radius);
+}
+.btn-verdik:hover { background: var(--success-soft); }
+.btn-verdik:active { background: var(--success); color: #fff; }
+.btn-verdik.is-loading { background: var(--success-soft); }
+.g-done { display: flex; flex-direction: column; color: var(--success); flex: 1; min-width: 0; }
+.g-done strong { font-size: 1.05rem; }
+.g-by { font-size: .85rem; color: var(--muted); }
+.g-undo { color: var(--danger); border-color: transparent; }
+
+@media (min-width: 640px) {
+  .g-card { grid-template-columns: 1fr 220px; align-items: center; }
+  .g-action { justify-content: flex-end; }
+  .g-done { text-align: right; }
+}
+
+/* Kişi ekle penceresi */
+.gift-dialog { width: min(440px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: 0 12px 40px rgba(15, 23, 42, .3); color: var(--text); background: var(--surface); }
+.gift-dialog::backdrop { background: rgba(15, 23, 42, .45); }
+.gift-dialog h2 { margin: 0 0 14px; font-size: 1.1rem; }
+
+/* Toast */
+.toast {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 50;
+  transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  max-width: calc(100% - 32px); padding: 12px 18px; border-radius: var(--radius);
+  background: var(--text); color: #fff; font-weight: 600; box-shadow: 0 8px 24px rgba(15, 23, 42, .25);
+  transition: opacity .2s, transform .2s;
+}
+.toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.toast-success { background: var(--success); }
+.toast-warning { background: var(--warning); }
+.toast-error { background: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .gift-count .progress > span { transition: none; }
+}

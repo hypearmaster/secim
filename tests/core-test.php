@@ -355,6 +355,31 @@ vote_add($yon, 'mavi'); vote_add($yon, 'kirmizi');
 check('yönetici sıfırlayamaz (sadece admin)', !vote_reset($yon)['ok'] && vote_reset($yon)['status'] === 403);
 check('oy kaydı denetimden bağımsız etkinliğe bağlı', vote_tallies($testEvent)['total'] === 2);
 
+// Hediye dağıtım
+require APP_ROOT . '/src/gifts.php';
+check('hediye testleri aktif etkinlik = testEvent', (active_event()['id'] ?? null) === $testEvent);
+$gAdded = import_gifts($testEvent, ['Hediye Biri', 'Hediye İki', 'Hediye Biri', '  ', 'Hediye Üç'], $yon['id']);
+check('hediye yüklenir, boş/yinelenen atlanır', $gAdded === 3 && gift_stats()['total'] === 3, "added=$gAdded");
+$gid = (int) q('SELECT id FROM gifts WHERE event_id = ? ORDER BY name, id LIMIT 1', [$testEvent])->fetchColumn();
+$gm = mark_gift($onay, $gid, true);
+check('onaycı hediye verir (gift_mark onayci\'de)', $gm['ok'] && $gm['gift']['given'] && gift_stats()['given'] === 1);
+$gm2 = mark_gift($yon, $gid, true);
+check('zaten verilmişi tekrar verme 409', !$gm2['ok'] && $gm2['status'] === 409 && $gm2['gift']['given']);
+$gm3 = mark_gift($onay, 99999999, true);
+check('olmayan hediye id 404', $gm3['status'] === 404);
+$gu = mark_gift($onay, $gid, false);
+check('hediye geri alınır', $gu['ok'] && !$gu['gift']['given'] && gift_stats()['given'] === 0);
+$ga = add_gift($onay, 'Elle Hediye', 'A Firma');
+check('elle hediye eklenir (not ile)', $ga['ok'] && $ga['gift']['name'] === 'Elle Hediye' && $ga['gift']['note'] === 'A Firma' && gift_stats()['total'] === 4);
+check('boş ad 422', add_gift($yon, '   ')['status'] === 422);
+mark_gift($yon, $gid, true);
+$gPend = array_column(search_gifts(['status' => 'pending'], 200)['items'], 'id');
+$gGiven = array_column(search_gifts(['status' => 'given'], 200)['items'], 'id');
+check('hediye durum filtresi (given/pending)', in_array($gid, $gGiven, true) && !in_array($gid, $gPend, true) && count($gPend) === 3 && count($gGiven) === 1);
+clear_gifts($testEvent);
+check('clear_gifts siler', gift_stats()['total'] === 0);
+q('DELETE FROM import_batches WHERE event_id = ?', [$testEvent]); // import_gifts'in açtığı batch satırları (shutdown events siler, FK için)
+
 check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
 q("DELETE FROM audit_log WHERE target = '__test__'");
 
