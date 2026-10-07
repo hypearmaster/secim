@@ -185,7 +185,7 @@ function vote_undo(array $user, ?string $optionKey = null, ?int $expectedEventId
 }
 
 /**
- * Sayacı sıfırlar (sadece admin). Tüm tıklamaları siler; denetime yazılır.
+ * Sayacı sıfırlar (admin ve yönetici). Tüm tıklamaları siler; denetime yazılır.
  * Okuma + silme tek transaction: eşzamanlı add/undo araya girip sayımı/denetimi bozamaz;
  * denetime gerçekten SİLİNEN satır sayısı (rowCount) yazılır.
  */

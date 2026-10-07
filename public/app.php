@@ -82,7 +82,6 @@ render_header('Onay', 'app', ['onay.css']);
   </div>
 
   <div class="result-bar">
-    <p id="result-info" class="result-info muted" aria-live="polite"></p>
     <?php if ($canAdd): ?>
       <button type="button" class="btn btn-sm btn-primary" id="add-open">+ Yeni kişi</button>
     <?php endif; ?>

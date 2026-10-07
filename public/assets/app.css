@@ -44,7 +44,13 @@ a { color: var(--primary); }
 .muted { color: var(--muted); }
 .inline { display: inline; }
 .container { width: 100%; max-width: 1100px; margin: 0 auto; padding: 16px; }
-.stack > * + * { margin-top: 12px; }
+.stack > * + * { margin-top: 20px; }
+.card { overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+  .container { padding: 14px 12px; }
+  .topbar-user { flex-wrap: wrap; justify-content: flex-end; }
+  .table td { overflow-wrap: anywhere; }
+}
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .spacer { flex: 1; }
 
@@ -167,3 +173,7 @@ textarea.input { min-height: 96px; }
 .check { display: flex; gap: 10px; align-items: flex-start; min-height: var(--tap); padding: 6px 0; cursor: pointer; line-height: 1.35; }
 .check input { width: 22px; height: 22px; margin: 1px 0 0; flex: none; accent-color: var(--primary); }
 .check small { display: block; }
+@media (max-width: 639px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .table th, .table td { padding: 10px 8px; }
+}

@@ -15,7 +15,6 @@
     list: document.getElementById('list'),
     empty: document.getElementById('empty'),
     more: document.getElementById('more'),
-    info: document.getElementById('result-info'),
     toast: document.getElementById('toast'),
     came: document.getElementById('cnt-came'),
     total: document.getElementById('cnt-total'),
@@ -128,7 +127,8 @@
 
   function card(p) {
     var bizimle = cfg.supporterStance && p.stance && p.stance.value === cfg.supporterStance;
-    var c = el('article', 'p-card' + (p.attended ? ' is-came' : '') + (bizimle ? ' is-bizimle' : ''));
+    var karsi = p.stance && p.stance.color === 'danger';
+    var c = el('article', 'p-card' + (p.attended ? ' is-came' : '') + (bizimle ? ' is-bizimle' : '') + (karsi ? ' is-karsi' : ''));
     c.setAttribute('data-id', p.id);
 
     var main = el('div', 'p-main');
@@ -264,7 +264,6 @@
         els.list.appendChild(frag);
         els.empty.hidden = res.total > 0;
         els.more.hidden = !res.has_more;
-        els.info.textContent = res.total + ' kayıt';
         setStats(res.stats);
       })
       .catch(function (err) {

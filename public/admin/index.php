@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
+require APP_ROOT . '/src/votes.php';
 
 $user = require_perm('dashboard');
 $event = active_event();
@@ -60,6 +61,16 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
 </div>
 
 <div class="stack">
+    <section class="card vote-summary" id="vote-summary" data-api="<?= e(url('api/vote.php')) ?>">
+        <div class="vote-summary-head">
+            <div><span class="stat-label">Oy sayımı</span><h2>Canlı sonuçlar</h2></div>
+            <span class="vote-live" id="vote-live" role="status">Yükleniyor…</span>
+        </div>
+        <div class="vote-summary-total"><strong id="summary-total">—</strong><span>toplam oy</span></div>
+        <p class="vote-leader" id="vote-leader" aria-live="polite">Güncel sonuçlar alınıyor…</p>
+        <div id="vote-results" class="vote-results" aria-busy="true"><div class="vote-placeholder"></div><div class="vote-placeholder"></div></div>
+        <p class="muted vote-summary-note">Sayım devam ediyor · 4 saniyede bir güncellenir</p>
+    </section>
     <section class="card">
         <h2>İlçe Kırılımı</h2>
         <?php if ($regionBreakdown): ?>
@@ -204,4 +215,4 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
 })();
 </script>
 <?php
-render_footer();
+render_footer(['dashboard-votes.js']);
