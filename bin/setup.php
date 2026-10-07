@@ -78,6 +78,14 @@ if (!$has('people', 'firm_key')) {
     db()->exec("ALTER TABLE people ADD COLUMN firm_key VARCHAR(255) NOT NULL DEFAULT '' AFTER search_key, ADD KEY ix_people_event_firm (event_id, firm_key)");
     $migrated++;
 }
+if (!$has('people', 'phone')) {
+    db()->exec("ALTER TABLE people ADD COLUMN phone VARCHAR(20) NULL AFTER ref_no");
+    echo "  kişiler: telefon sütunu eklendi\n";
+}
+if (!$has('users', 'auth_version')) {
+    db()->exec("ALTER TABLE users ADD COLUMN auth_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER last_login_at");
+    echo "  kullanıcılar: oturum sürümü sütunu eklendi\n";
+}
 if (!$has('supporters', 'source')) {
     db()->exec("ALTER TABLE supporters ADD COLUMN source ENUM('list','manual') NOT NULL DEFAULT 'list' AFTER status");
     echo "  Bizimkiler: kaynak sütunu eklendi\n";

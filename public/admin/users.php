@@ -54,6 +54,7 @@ if (is_post()) {
                             flash('error', 'Son aktif admin pasife alınamaz.');
                         } else {
                             q('UPDATE users SET is_active = ? WHERE id = ?', [$newActive, $targetId]);
+                            revoke_user_sessions($targetId); // kayıtlı cihazları da hemen düşer
                             audit('user_deactivate', $target['username']);
                             flash('success', 'Kullanıcı pasife alındı.');
                         }
@@ -63,6 +64,13 @@ if (is_post()) {
                         flash('success', 'Kullanıcı aktif edildi.');
                     }
                 }
+            } elseif ($action === 'revoke_sessions') {
+                $n = remember_device_count($targetId);
+                revoke_user_sessions($targetId);
+                audit('sessions_revoked', $target['username'], ['kayıtlı cihaz' => $n]);
+                flash('success', $targetId === $user['id']
+                    ? 'Diğer tüm cihazlarınızdan çıkış yapıldı (bu cihaz açık kaldı).'
+                    : "{$target['username']} tüm cihazlardan çıkarıldı; tekrar şifreyle girmesi gerekecek.");
             } elseif ($action === 'edit') {
                 $newRole = (string) ($_POST['role'] ?? '');
                 $newRegion = clean_text($_POST['region'] ?? '', 120) ?: null;
@@ -97,9 +105,10 @@ if (is_post()) {
                 }
                 if ($newPw !== '') {
                     q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($newPw, PASSWORD_DEFAULT), $targetId]);
+                    revoke_user_sessions($targetId); // eski şifreyle açık kalan cihazlar düşer
                     audit('user_password', $target['username']);
                 }
-                flash('success', 'Kullanıcı güncellendi' . ($newPw !== '' ? ', şifre değişti.' : '.'));
+                flash('success', 'Kullanıcı güncellendi' . ($newPw !== '' ? ', şifre değişti; açık cihazlarından çıkarıldı.' : '.'));
             }
         }
         redirect('admin/users.php');
@@ -121,7 +130,8 @@ if ($qStr !== '') {
 }
 
 $total = (int) q("SELECT COUNT(*) FROM users WHERE $where", $params)->fetchColumn();
-$usersList = q("SELECT * FROM users WHERE $where ORDER BY id DESC LIMIT ? OFFSET ?", [...$params, $perPage, $offset])->fetchAll();
+$usersList = q("SELECT u.*, (SELECT COUNT(*) FROM remember_tokens t WHERE t.user_id = u.id AND t.expires_at > UTC_TIMESTAMP()) AS devices
+                FROM users u WHERE $where ORDER BY u.id DESC LIMIT ? OFFSET ?", [...$params, $perPage, $offset])->fetchAll();
 $totalPages = max(1, (int) ceil($total / $perPage));
 
 $regions = q("SELECT DISTINCT region FROM users WHERE region IS NOT NULL AND region <> '' ORDER BY region")->fetchAll(PDO::FETCH_COLUMN);
@@ -234,6 +244,7 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                     <th>Bölge</th>
                     <th>Durum</th>
                     <th>Son Giriş</th>
+                    <th title="Bu cihazda açık kalsın diyerek giriş yapılan cihazlar">Kayıtlı cihaz</th>
                     <th>İşlemler</th>
                 </tr>
             </thead>
@@ -250,6 +261,7 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                         </span>
                     </td>
                     <td><?= $u['last_login_at'] ? e(fmt_datetime($u['last_login_at'])) : '—' ?></td>
+                    <td class="num"><?= e((int) $u['devices']) ?></td>
                     <td>
                         <div class="row" style="gap: 4px;">
                             <?php if (true): /* düzenleme artık modalda */ ?>
@@ -260,6 +272,14 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                                     <input type="hidden" name="id" value="<?= e($u['id']) ?>">
                                     <button type="submit" class="btn btn-sm <?= $u['is_active'] ? 'btn-ghost' : '' ?>"><?= $u['is_active'] ? 'Pasife Al' : 'Aktif Et' ?></button>
                                 </form>
+                                <?php if ($u['is_active']): ?>
+                                <form method="post" class="inline" onsubmit="return confirm('<?= e($u['username']) ?> tüm cihazlardan çıkarılsın mı? Tekrar şifreyle girmesi gerekecek.');">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="revoke_sessions">
+                                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
+                                    <button type="submit" class="btn btn-sm btn-ghost">Cihazlardan çıkar</button>
+                                </form>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <span class="muted">Düzenleniyor…</span>
                             <?php endif; ?>
@@ -268,7 +288,7 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                 </tr>
             <?php endforeach; ?>
             <?php if (!$usersList): ?>
-                <tr><td colspan="7" class="empty">Kullanıcı yok.</td></tr>
+                <tr><td colspan="8" class="empty">Kullanıcı yok.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

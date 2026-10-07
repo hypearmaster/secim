@@ -8,10 +8,12 @@ if (current_user()) {
 
 $error = null;
 $username = '';
+$remember = true; // telefonda tarayıcı kapanınca tekrar şifre sormasın (ortak cihazda işareti kaldırın)
 if (is_post()) {
     csrf_verify();
     $username = (string) ($_POST['username'] ?? '');
-    $result = attempt_login($username, (string) ($_POST['password'] ?? ''));
+    $remember = ($_POST['remember'] ?? '') === '1';
+    $result = attempt_login($username, (string) ($_POST['password'] ?? ''), $remember);
     if ($result === 'ok') {
         redirect(home_path());
     }
@@ -40,6 +42,10 @@ render_header('Giriş');
     <label class="field">
       <span>Şifre</span>
       <input class="input" type="password" name="password" required autocomplete="current-password">
+    </label>
+    <label class="check">
+      <input type="checkbox" name="remember" value="1"<?= $remember ? ' checked' : '' ?>>
+      <span>Bu cihazda oturumum açık kalsın <small class="muted">(<?= e((int) config('remember_days', 30)) ?> gün; ortak/başkasının telefonunda işareti kaldırın)</small></span>
     </label>
     <button type="submit" class="btn btn-primary btn-lg btn-block">Giriş yap</button>
   </form>

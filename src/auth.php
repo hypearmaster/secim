@@ -22,17 +22,24 @@ const PERMISSIONS = [
     'supporters'    => ['admin', 'yonetici'],           // Bizimkiler listesini görür
     'manage_supporters' => ['admin'],                   // Bizimkiler yükler / eşleştirir
     'stance'        => ['admin', 'yonetici'],           // "Bizimle mi?" sütununu görür ve değiştirir
+    'call'          => ['admin', 'yonetici', 'onayci'], // kartta telefon simgesi (numara sadece buna gönderilir)
+    'add_person'    => ['admin', 'yonetici'],           // listeye elle yeni kişi ekler
     'import'        => ['admin'],
     'manage_events' => ['admin'],
     'manage_users'  => ['admin'],
 ];
+
+function is_https(): bool
+{
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+}
 
 function start_session(): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) {
         return;
     }
-    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+    $https = is_https();
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.gc_maxlifetime', (string) (60 * 60 * 12));
@@ -51,8 +58,13 @@ function start_session(): void
 function current_user(): ?array
 {
     // Önbellek oturumdaki uid'ye bağlı: aynı istekte giriş yapılınca eski "kimse yok" sonucu dönmesin.
-    static $cachedUid = null, $user = null;
+    static $cachedUid = null, $user = null, $triedRemember = false;
     $uid = $_SESSION['uid'] ?? null;
+    if (!is_int($uid) && !$triedRemember && PHP_SAPI !== 'cli') {
+        // Oturum yok (tarayıcı kapanıp açıldı): "bu cihazda açık kalsın" çerezi varsa sessizce giriş
+        $triedRemember = true;
+        $uid = remember_login();
+    }
     if (!is_int($uid)) {
         return null;
     }
@@ -61,11 +73,15 @@ function current_user(): ?array
     }
     $cachedUid = $uid;
     $user = null;
-    $row = q('SELECT id, username, full_name, role, region, is_active FROM users WHERE id = ?', [$uid])->fetch();
-    if (!$row || !(int) $row['is_active'] || !isset(ROLES[$row['role']])) {
+    $row = q('SELECT id, username, full_name, role, region, is_active, auth_version FROM users WHERE id = ?', [$uid])->fetch();
+    $av = $_SESSION['av'] ?? null;
+    if (!$row || !(int) $row['is_active'] || !isset(ROLES[$row['role']])
+        || (is_int($av) && $av !== (int) $row['auth_version'])) { // şifre değişti / cihazlardan çıkarıldı
         logout();
         return null;
     }
+    $_SESSION['av'] ??= (int) $row['auth_version']; // bu özellikten önce açılmış oturumlar
+    unset($row['auth_version']);
     $row['id'] = (int) $row['id'];
     return $user = $row;
 }
@@ -114,7 +130,7 @@ function home_path(?array $user = null): string
 /**
  * @return 'ok'|'invalid'|'locked'
  */
-function attempt_login(string $username, string $password): string
+function attempt_login(string $username, string $password, bool $remember = false): string
 {
     $username = mb_substr(trim($username), 0, 64);
     $ip = client_ip_bin();
@@ -146,15 +162,31 @@ function attempt_login(string $username, string $password): string
     }
     q('UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?', [$row['id']]);
 
-    session_regenerate_id(true);
-    $_SESSION = ['uid' => (int) $row['id']];
-    csrf_token();
-    audit('login', $username, [], (int) $row['id']);
+    begin_user_session((int) $row['id']);
+    if ($remember) {
+        remember_issue((int) $row['id']);
+    }
+    audit('login', $username, $remember ? ['cihazda açık kalsın' => 'evet'] : [], (int) $row['id']);
     return 'ok';
+}
+
+/** Yeni oturum kimliği + kullanıcı (oturum sabitleme saldırısına karşı her girişte yeni kimlik). */
+function begin_user_session(int $uid, ?string $rememberSelector = null): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_regenerate_id(true);
+    }
+    $av = (int) q('SELECT auth_version FROM users WHERE id = ?', [$uid])->fetchColumn();
+    $_SESSION = ['uid' => $uid, 'av' => $av];
+    if ($rememberSelector !== null) {
+        $_SESSION['rm'] = $rememberSelector;
+    }
+    csrf_token();
 }
 
 function logout(): void
 {
+    remember_forget_current();
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
@@ -192,4 +224,164 @@ function generate_password(int $len = 10): string
         $out .= $chars[random_int(0, strlen($chars) - 1)];
     }
     return $out;
+}
+
+/* ---------- "Bu cihazda oturumum açık kalsın" ---------- */
+
+/*
+ * Telefon tarayıcısı kapanınca oturum çerezi gider; bu çerez 'remember_days' gün kalır.
+ * Güvenlik:
+ *  - Çerez "selector:validator". DB'de validator'ın sadece SHA-256'sı var (DB sızsa da çerez üretilemez).
+ *  - Her kullanımda validator yenilenir. Eski validator 2 dk geçerli (aynı anda giden istekler için),
+ *    sonra gelirse çerez kopyalanmış sayılır: o cihaz kaydı silinir ve denetime yazılır.
+ *  - Çıkış o cihazın kaydını siler. Şifre değişimi / pasife alma / "Tüm cihazlardan çıkar"
+ *    hepsini siler ve açık oturumları da düşürür (users.auth_version).
+ *  - HttpOnly (JS okuyamaz), HTTPS'te Secure, SameSite=Lax. Kullanıcı başına en fazla 10 cihaz.
+ */
+const REMEMBER_COOKIE = 'secim_rm';
+const REMEMBER_GRACE_SECONDS = 120;
+const REMEMBER_MAX_DEVICES = 10;
+
+function remember_set_cookie(string $value, int $expires): void
+{
+    if (PHP_SAPI === 'cli' || headers_sent()) {
+        return;
+    }
+    setcookie(REMEMBER_COOKIE, $value, [
+        'expires'  => $expires,
+        'path'     => rtrim((string) config('base_url', ''), '/') . '/',
+        'secure'   => is_https(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
+/** Bu cihaz için yeni hatırlama kaydı açar ve çerezi yazar. */
+function remember_issue(int $uid): void
+{
+    $days = max(1, (int) config('remember_days', 30));
+    $selector = bin2hex(random_bytes(12));
+    $validator = bin2hex(random_bytes(32));
+    q('DELETE FROM remember_tokens WHERE expires_at <= UTC_TIMESTAMP()');
+    q('INSERT INTO remember_tokens (user_id, selector, validator_hash, user_agent, ip, created_at, last_used_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), UTC_TIMESTAMP() + INTERVAL ? DAY)',
+        [$uid, $selector, hash('sha256', $validator), mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 190), client_ip_bin(), $days]);
+    q('DELETE FROM remember_tokens WHERE user_id = ? AND id NOT IN (
+         SELECT id FROM (SELECT id FROM remember_tokens WHERE user_id = ? ORDER BY id DESC LIMIT ' . REMEMBER_MAX_DEVICES . ') keep)', [$uid, $uid]);
+    $_SESSION['rm'] = $selector;
+    remember_set_cookie("$selector:$validator", time() + $days * 86400);
+}
+
+/**
+ * Çerezi doğrular ve validator'ı yeniler (çerez/oturum işi yapmaz; test edilebilir çekirdek).
+ * @return ?array{uid:int, username:string, selector:string, cookie:?string, expires:int}
+ *         cookie = tarayıcıya yazılacak yeni değer (null: yazma, eşzamanlı istek yeniledi)
+ */
+function remember_consume(string $raw): ?array
+{
+    if (!preg_match('/^([a-f0-9]{24}):([a-f0-9]{64})$/', $raw, $m)) {
+        return null;
+    }
+    [, $selector, $validator] = $m;
+    $row = q('SELECT t.id, t.user_id, t.validator_hash, t.prev_hash, UNIX_TIMESTAMP(t.expires_at) AS exp,
+                     (t.rotated_at > UTC_TIMESTAMP() - INTERVAL ' . REMEMBER_GRACE_SECONDS . ' SECOND) AS in_grace,
+                     u.username, u.is_active
+              FROM remember_tokens t JOIN users u ON u.id = t.user_id
+              WHERE t.selector = ? AND t.expires_at > UTC_TIMESTAMP()', [$selector])->fetch();
+    if (!$row) {
+        return null;
+    }
+    $out = ['uid' => (int) $row['user_id'], 'username' => $row['username'], 'selector' => $selector, 'cookie' => null, 'expires' => (int) $row['exp']];
+    if (!(int) $row['is_active']) {
+        q('DELETE FROM remember_tokens WHERE id = ?', [$row['id']]);
+        return null;
+    }
+    $hash = hash('sha256', $validator);
+    if (hash_equals($row['validator_hash'], $hash)) {
+        $new = bin2hex(random_bytes(32));
+        // Koşullu: aynı anda iki istek yenilemeye çalışırsa sadece biri yazar
+        $st = q('UPDATE remember_tokens SET prev_hash = validator_hash, validator_hash = ?, rotated_at = UTC_TIMESTAMP(),
+                        last_used_at = UTC_TIMESTAMP(), ip = ?, user_agent = ?
+                 WHERE id = ? AND validator_hash = ?',
+            [hash('sha256', $new), client_ip_bin(), mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 190), $row['id'], $hash]);
+        if ($st->rowCount() === 1) {
+            $out['cookie'] = "$selector:$new";
+        }
+        return $out;
+    }
+    if ($row['prev_hash'] !== null && (int) $row['in_grace'] === 1 && hash_equals($row['prev_hash'], $hash)) {
+        return $out; // az önce yenilendi; yeni çerez diğer yanıtla gitti
+    }
+    // Eski/yanlış validator: çerez kopyalanmış olabilir. Bu cihaz kaydı iptal (yeniden şifre ister).
+    q('DELETE FROM remember_tokens WHERE id = ?', [$row['id']]);
+    audit('remember_reuse', $row['username'], ['sebep' => 'eski ya da yanlış cihaz anahtarı; cihaz kaydı iptal edildi'], (int) $row['user_id']);
+    return null;
+}
+
+/** Oturum yokken çağrılır: geçerli çerez varsa oturumu açar. @return kullanıcı id ya da null */
+function remember_login(): ?int
+{
+    $raw = $_COOKIE[REMEMBER_COOKIE] ?? null;
+    if (!is_string($raw) || $raw === '') {
+        return null;
+    }
+    try {
+        $r = remember_consume($raw);
+    } catch (Throwable $e) {
+        error_log('remember_login: ' . $e->getMessage());
+        return null;
+    }
+    if ($r === null) {
+        remember_set_cookie('', time() - 3600);
+        return null;
+    }
+    if ($r['cookie'] !== null) {
+        remember_set_cookie($r['cookie'], $r['expires']);
+    }
+    begin_user_session($r['uid'], $r['selector']);
+    q('UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?', [$r['uid']]);
+    audit('login_auto', $r['username'], [], $r['uid']);
+    return $r['uid'];
+}
+
+/** Bu cihazın hatırlama kaydını siler, çerezi temizler (çıkış). */
+function remember_forget_current(): void
+{
+    $selector = $_SESSION['rm'] ?? null;
+    $raw = $_COOKIE[REMEMBER_COOKIE] ?? null;
+    if (!is_string($selector) && is_string($raw) && preg_match('/^([a-f0-9]{24}):/', $raw, $m)) {
+        $selector = $m[1];
+    }
+    if (is_string($selector)) {
+        try {
+            q('DELETE FROM remember_tokens WHERE selector = ?', [$selector]);
+        } catch (Throwable $e) {
+            error_log('remember_forget: ' . $e->getMessage());
+        }
+    }
+    if ($raw !== null) {
+        remember_set_cookie('', time() - 3600);
+    }
+}
+
+/**
+ * Kullanıcının TÜM cihazlarını ve açık oturumlarını düşürür (şifre değişti, pasif, "cihazlardan çıkar").
+ * İşlemi yapan kendisiyse bu oturumu korunur (kendini dışarı atmasın).
+ */
+function revoke_user_sessions(int $uid): void
+{
+    q('UPDATE users SET auth_version = auth_version + 1 WHERE id = ?', [$uid]);
+    q('DELETE FROM remember_tokens WHERE user_id = ?', [$uid]);
+    if (($_SESSION['uid'] ?? null) === $uid) {
+        $_SESSION['av'] = (int) q('SELECT auth_version FROM users WHERE id = ?', [$uid])->fetchColumn();
+        if (isset($_SESSION['rm'])) {
+            remember_issue($uid); // bu cihaz açık kalsın
+        }
+    }
+}
+
+/** @return int kullanıcının "açık kalsın" dediği geçerli cihaz sayısı */
+function remember_device_count(int $uid): int
+{
+    return (int) q('SELECT COUNT(*) FROM remember_tokens WHERE user_id = ? AND expires_at > UTC_TIMESTAMP()', [$uid])->fetchColumn();
 }

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   region         VARCHAR(120) NULL COMMENT 'NULL = tüm bölgeler; doluysa onayci sadece bu bölgeyi görür',
   is_active      TINYINT(1)   NOT NULL DEFAULT 1 COMMENT 'Kullanıcı silinmez, pasife alınır (geçmiş işaretler bozulmasın)',
   last_login_at  DATETIME     NULL,
+  auth_version   INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Artınca bu kullanıcının tüm oturumları düşer (şifre değişti, cihazlardan çıkar)',
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS people (
   event_id     INT UNSIGNED NOT NULL,
   batch_id     INT UNSIGNED NULL,
   ref_no       VARCHAR(64)  NULL COMMENT 'Excel''de benzersiz numara varsa (opsiyonel)',
+  phone        VARCHAR(20)  NULL COMMENT 'Arama için telefon (+905xxxxxxxxx); Excel Gsm/Tel ya da elle',
   full_name    VARCHAR(160) NOT NULL,
   authority    VARCHAR(255) NULL COMMENT 'Yetkili kişi(ler)',
   region       VARCHAR(120) NULL COMMENT 'Bölge',
@@ -87,6 +89,25 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_attempts_user (username, created_at),
   KEY ix_attempts_ip   (ip, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- "Bu cihazda açık kalsın": tarayıcı kapanınca da oturum sürer. Çerezde selector:validator,
+-- DB'de sadece validator'ın SHA-256'sı. Her kullanımda validator yenilenir (çalınan eski çerez işe yaramaz).
+CREATE TABLE IF NOT EXISTS remember_tokens (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id         INT UNSIGNED NOT NULL,
+  selector        CHAR(24)     NOT NULL,
+  validator_hash  CHAR(64)     NOT NULL,
+  prev_hash       CHAR(64)     NULL COMMENT 'Yenilemeden önceki; aynı anda gelen istekler için kısa süre geçerli',
+  rotated_at      DATETIME     NULL,
+  user_agent      VARCHAR(190) NULL,
+  ip              VARBINARY(16) NULL,
+  created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_used_at    DATETIME     NULL,
+  expires_at      DATETIME     NOT NULL,
+  UNIQUE KEY uq_remember_selector (selector),
+  KEY ix_remember_user (user_id),
+  CONSTRAINT fk_remember_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- Denetim kaydı: yönetim işlemleri (giriş, kullanıcı, liste, dışa aktarma...). Şifre ASLA yazılmaz.

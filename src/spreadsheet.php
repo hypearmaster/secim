@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 /*
  * Excel/CSV okuma (import) ve xlsx yazma (export).
- * İlke: kişisel veri (telefon, mail, adres, ortaklar, TC) varsayılan olarak ALINMAZ
- * ve önizlemede ekrana bile basılmaz; yetkili sütunundan doğum tarihi/yeri atılır.
+ * İlke: kişisel veri (mail, adres, ortaklar, TC) ALINMAZ ve önizlemede ekrana bile basılmaz;
+ * yetkili sütunundan doğum tarihi/yeri atılır. Telefon (Gsm/Tel) tek istisna: kartta "ara"
+ * simgesi için "Telefon" olarak alınabilir, başka hiçbir alana eşlenemez.
  */
 
 use PhpOffice\PhpSpreadsheet\Cell\Cell;
@@ -30,6 +31,7 @@ const IMPORT_FIELDS = [
     'region'     => 'İlçe / Bölge',
     'group_name' => 'Grup',
     'ref_no'     => 'Sicil / Referans No',
+    'phone'      => 'Telefon (arama için)',
     'stance'     => 'Bizimle mi?',
     'extra'      => 'Ek bilgi (sakla)',
     'ignore'     => 'Alma',
@@ -51,9 +53,36 @@ function is_personal_header(string $header): bool
     return false;
 }
 
+/** Telefon sütunu mu? (Gsm, Tel, Cep, Telefon...) Kişisel veridir ama "Telefon" olarak alınabilir. */
+function is_phone_header(string $header): bool
+{
+    $k = ' ' . search_key($header) . ' ';
+    foreach (['tel', 'gsm', 'telefon', 'telefonu', 'cep', 'ceptel', 'mobil', 'phone'] as $p) {
+        if (str_contains($k, " $p ")) { // tam kelime: "Gsm", "Cep Tel", "Telefon No"
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Kişisel veri sütunu bu alana eşlenebilir mi? (telefon sütunu sadece "Telefon" ya da "Alma") */
+function allowed_field(string $header, string $field): bool
+{
+    if (!isset(IMPORT_FIELDS[$field])) {
+        return false;
+    }
+    if (is_phone_header($header)) {
+        return in_array($field, ['phone', 'ignore'], true);
+    }
+    return $field === 'ignore' || (!is_personal_header($header) && $field !== 'phone');
+}
+
 function guess_field(string $header): string
 {
     $k = search_key($header);
+    if (is_phone_header($header)) {
+        return 'phone';
+    }
     if ($k === '' || is_personal_header($header)) {
         return 'ignore';
     }
@@ -283,6 +312,7 @@ function build_people(array $header, array $rows, array $mapping, ?string $fixed
     foreach ($rows as $row) {
         $d = ['extra' => []];
         $first = $last = null;
+        $phones = [];
         foreach ($mapping as $i => $field) {
             $v = $row[$i] ?? null;
             if ($v === null || $field === 'ignore') {
@@ -293,9 +323,14 @@ function build_people(array $header, array $rows, array $mapping, ?string $fixed
                 'last_name'  => $last = $v,
                 'extra'      => $d['extra'][$header[$i]] = $v,
                 'authority'  => $d['authority'] = names_only($v),
+                'phone'      => $phones[] = normalize_phone($v),
                 default      => $d[$field] = $v,
             };
         }
+        // Hem Gsm hem Tel varsa cep numarası öncelikli; ikisi de geçersizse telefonsuz
+        $phones = array_values(array_filter($phones));
+        usort($phones, fn($a, $b) => is_mobile_phone($b) <=> is_mobile_phone($a));
+        $d['phone'] = $phones[0] ?? null;
         $d['full_name'] ??= clean_text(trim(($first ?? '') . ' ' . ($last ?? '')));
         if ($d['full_name'] === null) {
             $skipped++;
@@ -351,7 +386,7 @@ function export_xlsx(array $user, array $event, array $filters): never
     // --- Liste
     $sheet = $book->getActiveSheet();
     $sheet->setTitle('Liste');
-    $titles = ['Sıra', 'Ad Soyad (Yetkili)', 'Firma (Unvan)', 'Sicil No', 'İlçe', 'Grup'];
+    $titles = ['Sıra', 'Ad Soyad (Yetkili)', 'Firma (Unvan)', 'Sicil No', 'Telefon', 'İlçe', 'Grup'];
     if ($withStance) {
         $titles[] = 'Bizimle mi?';
     }
@@ -360,7 +395,7 @@ function export_xlsx(array $user, array $event, array $filters): never
 
     foreach ($rows as $n => $p) {
         $r = $n + 2;
-        $vals = [$n + 1, $p['authority'] ?? $p['full_name'], $p['authority'] ? $p['full_name'] : '', $p['ref_no'], $p['region'], $p['group_name']];
+        $vals = [$n + 1, $p['authority'] ?? $p['full_name'], $p['authority'] ? $p['full_name'] : '', $p['ref_no'], phone_display($p['phone']), $p['region'], $p['group_name']];
         if ($withStance) {
             $vals[] = $p['stance'] === null ? '' : stance_view($p['stance'])['label'];
         }
@@ -406,4 +441,48 @@ function export_xlsx(array $user, array $event, array $filters): never
     header('Cache-Control: no-store');
     (new XlsxWriter($book))->save('php://output');
     exit;
+}
+
+/**
+ * Sadece telefonları günceller: dosyadaki sicil no ile aktif listedeki kayıt eşleşir, telefonu yazılır.
+ * Kişi eklenmez/silinmez, işaretlere dokunulmaz. Dosyada telefonu boş olan satır var olanı silmez.
+ * @return array{updated:int, unchanged:int, not_found:int, no_phone:int}
+ */
+function update_phones(int $eventId, array $people): array
+{
+    $placeholder = (string) config('placeholder_ref', '11111111');
+    $out = ['updated' => 0, 'unchanged' => 0, 'not_found' => 0, 'no_phone' => 0];
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        foreach ($people as $p) {
+            $ref = clean_text($p['ref_no'] ?? null, 64);
+            if ($ref === null || $ref === $placeholder) {
+                $out['not_found']++;
+                continue;
+            }
+            if (($p['phone'] ?? null) === null) {
+                $out['no_phone']++;
+                continue;
+            }
+            $ids = q('SELECT id, phone FROM people WHERE event_id = ? AND ref_no = ?', [$eventId, $ref])->fetchAll();
+            if (!$ids) {
+                $out['not_found']++;
+                continue;
+            }
+            $changed = false;
+            foreach ($ids as $row) {
+                if ($row['phone'] !== $p['phone']) {
+                    q('UPDATE people SET phone = ? WHERE id = ?', [$p['phone'], $row['id']]);
+                    $changed = true;
+                }
+            }
+            $out[$changed ? 'updated' : 'unchanged']++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return $out;
 }

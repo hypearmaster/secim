@@ -41,7 +41,8 @@
 .chip-count { color: var(--muted); font-size: .8rem; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .chip.is-active .chip-count { color: #cbd5e1; }
 
-.result-info { max-width: 1100px; margin: 8px auto 0; padding: 0 16px; font-size: .85rem; }
+.result-bar { max-width: 1100px; margin: 8px auto 0; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
+.result-info { margin: 0; font-size: .85rem; }
 
 /* Liste */
 .onay-list { max-width: 1100px; margin: 0 auto; padding: 8px 16px; display: grid; gap: 10px; }
@@ -77,7 +78,7 @@
 
 .p-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .btn-geldi {
-  width: 100%; min-height: 56px; font-size: 1.15rem; letter-spacing: .04em;
+  flex: 1; min-width: 0; min-height: 56px; font-size: 1.15rem; letter-spacing: .04em;
   background: var(--surface); color: var(--success); border: 2px solid var(--success); border-radius: var(--radius);
 }
 .btn-geldi:hover { background: var(--success-soft); }
@@ -87,9 +88,17 @@
 .p-done strong { font-size: 1.05rem; }
 .p-by { font-size: .85rem; color: var(--muted); }
 .p-undo { color: var(--danger); border-color: transparent; }
+/* Telefonla ara: GELDİ'nin yanında kare buton */
+.btn-call {
+  flex: none; width: 56px; min-height: 56px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface); color: var(--primary); border: 2px solid var(--primary); border-radius: var(--radius);
+}
+.btn-call svg { width: 24px; height: 24px; fill: currentColor; }
+.btn-call:hover { background: var(--primary-soft); }
+.btn-call:active { background: var(--primary); color: #fff; }
 
 @media (min-width: 640px) {
-  .p-card { grid-template-columns: 1fr 180px; align-items: center; }
+  .p-card { grid-template-columns: 1fr 250px; align-items: center; }
   .p-action { justify-content: flex-end; }
   .p-done { text-align: right; }
 }

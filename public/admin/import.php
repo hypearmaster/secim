@@ -73,16 +73,18 @@ if (is_post()) {
         $mapping = [];
         foreach ($sheet['header'] as $i => $h) {
             $m = $_POST['map'][$i] ?? 'ignore';
-            // kişisel veri sütunu formdan ne gelirse gelsin alınmaz
-            $mapping[$i] = is_personal_header($h) || !isset(IMPORT_FIELDS[$m]) ? 'ignore' : $m;
+            // kişisel veri sütunu formdan ne gelirse gelsin alınmaz (telefon sadece "Telefon" olarak)
+            $mapping[$i] = is_string($m) && allowed_field($h, $m) ? $m : 'ignore';
         }
         $counts = array_count_values($mapping);
         $active = active_event();
-        $mode = ($_POST['mode'] ?? '') === 'append' && $active ? 'append' : 'new';
+        $mode = in_array($_POST['mode'] ?? '', ['append', 'phones'], true) && $active ? $_POST['mode'] : 'new';
         $eventName = clean_text($_POST['event_name'] ?? '', 160);
         $fixedGroup = clean_text($_POST['fixed_group'] ?? '', 120);
 
         $problem = match (true) {
+            $mode === 'phones' && (!isset($counts['ref_no']) || !isset($counts['phone']))
+                => 'Telefon güncellemek için bir sütun "Sicil / Referans No", bir sütun "Telefon" olmalı.',
             !isset($counts['full_name']) && !isset($counts['first_name']) => 'Bir sütunu "Unvan / Ad Soyad" (ya da "Ad") olarak seçin.',
             ($counts['full_name'] ?? 0) > 1 => '"Unvan / Ad Soyad" sadece bir sütuna verilebilir.',
             $mode === 'new' && $eventName === null => 'Yeni liste için bir ad yazın.',
@@ -94,6 +96,18 @@ if (is_post()) {
         }
 
         $built = build_people($sheet['header'], $sheet['rows'], $mapping, $fixedGroup);
+        if ($mode === 'phones') {
+            // Kişi eklenmez: sadece aktif listedeki aynı sicilli kayıtların telefonu yazılır
+            $r = update_phones($active['id'], $built['people']);
+            audit('import_phones', $imp['original'], ['liste' => $active['name'], 'güncellenen' => $r['updated'],
+                'zaten aynı' => $r['unchanged'], 'listede yok' => $r['not_found'], 'telefonsuz satır' => $r['no_phone']]);
+            drop_import($dir);
+            flash('success', "{$r['updated']} kaydın telefonu güncellendi"
+                . ($r['unchanged'] ? ", {$r['unchanged']} zaten aynıydı" : '')
+                . ($r['not_found'] ? ", {$r['not_found']} sicil listede bulunamadı" : '')
+                . ($r['no_phone'] ? ", {$r['no_phone']} satırda telefon yok" : '') . '.');
+            redirect('admin/index.php');
+        }
         if (!$built['people']) {
             flash('error', 'Eklenecek kişi bulunamadı (ad sütunu boş).');
             redirect('admin/import.php?step=preview');
@@ -197,16 +211,21 @@ render_header('Liste yükle', 'import', ['admin.css']);
 
     <section class="card">
       <h2>Sütunlar</h2>
-      <p class="muted">Telefon, e-posta, adres, ortaklar gibi kişisel bilgiler varsayılan olarak <strong>alınmaz</strong>. Yetkili sütunundaki doğum tarihi ve yeri otomatik silinir.</p>
+      <p class="muted">E-posta, adres, ortaklar gibi kişisel bilgiler <strong>alınmaz</strong>. Telefon (Gsm/Tel) sadece kartta “ara” simgesi için alınır; ikisi de varsa cep numarası kullanılır. Yetkili sütunundaki doğum tarihi ve yeri otomatik silinir.</p>
       <div class="map-grid">
         <?php foreach ($sheet['header'] as $i => $h): ?>
           <label class="field map-row">
             <span><?= e($h) ?></span>
-            <?php if (is_personal_header($h)): ?>
+            <?php if (is_phone_header($h)): ?>
+            <select class="input" name="map[<?= e($i) ?>]">
+              <option value="phone"<?= $mapping[$i] === 'phone' ? ' selected' : '' ?>><?= e(IMPORT_FIELDS['phone']) ?></option>
+              <option value="ignore"<?= $mapping[$i] === 'ignore' ? ' selected' : '' ?>><?= e(IMPORT_FIELDS['ignore']) ?></option>
+            </select>
+            <?php elseif (is_personal_header($h)): ?>
               <select class="input" disabled><option>Alınmaz — kişisel veri</option></select>
             <?php else: ?>
             <select class="input" name="map[<?= e($i) ?>]">
-              <?php foreach (IMPORT_FIELDS as $k => $label): ?>
+              <?php foreach (IMPORT_FIELDS as $k => $label): if ($k === 'phone') continue; ?>
                 <option value="<?= e($k) ?>"<?= $mapping[$i] === $k ? ' selected' : '' ?>><?= e($label) ?></option>
               <?php endforeach; ?>
             </select>
@@ -229,7 +248,11 @@ render_header('Liste yükle', 'import', ['admin.css']);
           <thead><tr><?php foreach ($shown as $i): ?><th><?= e($sheet['header'][$i]) ?></th><?php endforeach; ?></tr></thead>
           <tbody>
           <?php foreach (array_slice($sheet['rows'], 0, 20) as $row): ?>
-            <tr><?php foreach ($shown as $i): ?><td><?= e($mapping[$i] === 'authority' ? names_only($row[$i] ?? null) : ($row[$i] ?? '')) ?></td><?php endforeach; ?></tr>
+            <tr><?php foreach ($shown as $i): ?><td><?= e(match ($mapping[$i]) {
+                'authority' => names_only($row[$i] ?? null),
+                'phone' => phone_display(normalize_phone($row[$i] ?? null)),
+                default => $row[$i] ?? '',
+            }) ?></td><?php endforeach; ?></tr>
           <?php endforeach; ?>
           </tbody>
         </table>
@@ -241,6 +264,7 @@ render_header('Liste yükle', 'import', ['admin.css']);
       <?php if ($active): ?>
         <label class="radio"><input type="radio" name="mode" value="new" checked> <span><strong>Yeni liste başlat</strong> — “<?= e($active['name']) ?>” arşive alınır, silinmez; işaretleri korunur.</span></label>
         <label class="radio"><input type="radio" name="mode" value="append"> <span><strong>Aktif listeye ekle</strong> — “<?= e($active['name']) ?>” listesine eklenir (başka bir grubun dosyası gibi).</span></label>
+        <label class="radio"><input type="radio" name="mode" value="phones"> <span><strong>Sadece telefonları güncelle</strong> — kimse eklenmez; “<?= e($active['name']) ?>” listesinde sicil no’su tutan kayıtlara dosyadaki telefon yazılır. İşaretler değişmez.</span></label>
       <?php else: ?>
         <input type="hidden" name="mode" value="new">
       <?php endif; ?>

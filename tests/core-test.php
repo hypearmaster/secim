@@ -51,6 +51,8 @@ register_shutdown_function(function () use ($testEvent, $prevEvent, $onay, $yon)
     q('DELETE FROM supporters WHERE event_id = ?', [$testEvent]); // supporter_people CASCADE
     q('DELETE FROM people WHERE event_id = ?', [$testEvent]);
     q('DELETE FROM events WHERE id = ?', [$testEvent]);
+    q('DELETE FROM remember_tokens WHERE user_id IN (?, ?)', [$onay['id'], $yon['id']]);
+    q('DELETE FROM audit_log WHERE user_id IN (?, ?)', [$onay['id'], $yon['id']]);
     q('DELETE FROM users WHERE id IN (?, ?)', [$onay['id'], $yon['id']]);
     if ($prevEvent) {
         activate_event($prevEvent['id']);
@@ -229,6 +231,95 @@ $matchedSup = q("SELECT * FROM supporters WHERE event_id = ? AND status = 'match
 check('eşleşmiş kayıt bağımsız yapılamaz (tahmin onayı atlanmasın)', (function () use ($matchedSup) {
     try { make_independent($matchedSup); return false; } catch (InvalidArgumentException $e) { return true; }
 })());
+
+// Telefon
+foreach (['0532 123 45 67' => '+905321234567', '5321234567' => '+905321234567', '+90 (532) 123-45-67' => '+905321234567',
+          '905321234567' => '+905321234567', '+90 242 321 31 01' => '+902423213101', '0049 30 1234567' => '+49301234567',
+          '12345' => null, 'yok' => null, '' => null] as $in => $want) {
+    check("telefon '$in' -> " . var_export($want, true), normalize_phone($in) === $want, var_export(normalize_phone($in), true));
+}
+check('telefon görünümü', phone_display('+905321234567') === '0532 123 45 67');
+$tp = insert_person($testEvent, null, ['full_name' => 'TELEFON TİCARET LTD', 'authority' => 'Tel Kişi', 'region' => 'Merkez', 'ref_no' => 'TP1', 'phone' => '0242 321 31 01']);
+insert_person($testEvent, null, ['full_name' => 'TELEFON TİCARET LTD ŞUBE', 'authority' => 'Tel Kişi', 'region' => 'Merkez', 'ref_no' => 'TP2', 'phone' => '05321234567']);
+$tc = search_people($onay, ['q' => 'tel kisi'])['items'][0] ?? null;
+check('kartta telefon (cep öncelikli)', $tc && $tc['phone'] === '+905321234567' && $tc['phone_text'] === '0532 123 45 67', json_encode($tc['phone'] ?? null));
+check('telefon import: Gsm/Tel sütunu tanınır, mail tanınmaz', guess_field('Gsm') === 'phone' && guess_field('Cep Tel') === 'phone'
+    && guess_field('Tel') === 'phone' && guess_field('Mail') === 'ignore' && guess_field('Otel Adı') === 'ignore');
+check('telefon sütunu başka alana eşlenemez', !allowed_field('Gsm', 'full_name') && allowed_field('Gsm', 'phone')
+    && !allowed_field('Unvan', 'phone') && !allowed_field('Adres', 'extra'));
+$bp = build_people(['Unvan', 'Tel', 'Gsm'], [['A FİRMA', '+90 242 111 22 33', '5321112233'], ['B FİRMA', '0242 111 22 33', null], ['C FİRMA', 'yok', 'yok']],
+    ['full_name', 'phone', 'phone'], null)['people'];
+check('import: cep varsa cep, yoksa sabit, geçersizse boş', array_column($bp, 'phone') === ['+905321112233', '+902421112233', null], json_encode(array_column($bp, 'phone')));
+$up = update_phones($testEvent, [['ref_no' => 'TP1', 'phone' => '+905559998877'], ['ref_no' => 'YOK1', 'phone' => '+905550000000'],
+    ['ref_no' => 'TP2', 'phone' => null], ['ref_no' => '11111111', 'phone' => '+905551111111']]);
+check('sadece telefon güncelle', $up === ['updated' => 1, 'unchanged' => 0, 'not_found' => 2, 'no_phone' => 1]
+    && q('SELECT phone FROM people WHERE id = ?', [$tp])->fetchColumn() === '+905559998877', json_encode($up));
+
+// Elle kişi ekleme
+$a0 = add_person($onay, ['name' => 'Yeni Biri']);
+check('onaycı kişi ekleyemez', !$a0['ok'] && $a0['status'] === 403);
+$a1 = add_person($yon, ['name' => 'Yeni Biri', 'phone' => '0533 000 11 22', 'region' => 'Merkez', 'group' => 'A Grubu']);
+check('yönetici sicilsiz kişi ekler -> 11111111', $a1['ok'] && $a1['person']['ref_no'] === '11111111' && $a1['person']['phone'] === '+905330001122'
+    && $a1['person']['full_name'] === 'Yeni Biri' && $a1['person']['authority'] === null, json_encode($a1));
+$a2 = add_person($yon, ['name' => 'Başka Biri', 'firm' => 'BAŞKA TİCARET', 'region' => 'Merkez']);
+check('firmalı ekleme: kartta ad = kişi, altında firma', $a2['ok'] && $a2['person']['authority'] === 'Başka Biri' && $a2['person']['full_name'] === 'BAŞKA TİCARET');
+$a2b = add_person($yon, ['name' => 'Üçüncü Kişi', 'region' => 'Merkez']);
+check('sicilsiz kişiler tek kartta birleşmez', $a2b['ok'] && $a2b['person']['count'] === 1 && $a1['person']['id'] !== $a2b['person']['id']);
+$a3 = add_person($yon, ['name' => 'YENİ BİRİ']);
+check('aynı isim uyarısı (409 + benzerler)', !$a3['ok'] && $a3['status'] === 409 && !empty($a3['similar']), json_encode($a3));
+check('benzer ama farklı isim uyarı vermez', add_person($yon, ['name' => 'Yeni Birim Ali', 'region' => 'Merkez'])['ok']);
+$a4 = add_person($yon, ['name' => 'Yeni', 'ref_no' => 'TP1']);
+check('aynı sicil uyarısı', !$a4['ok'] && $a4['status'] === 409);
+$a5 = add_person($yon, ['name' => 'YENİ BİRİ'], true);
+check('yine de ekle (force)', $a5['ok']);
+check('geçersiz telefon 422', add_person($yon, ['name' => 'X Y', 'phone' => '123'])['status'] === 422);
+check('geçersiz sicil 422', add_person($yon, ['name' => 'X Y', 'ref_no' => "1'; DROP"])['status'] === 422);
+check('ad zorunlu 422', add_person($yon, ['name' => '  '])['status'] === 422);
+check('eklenen kişi aranır ve GELDİ işaretlenir', count(search_people($onay, ['q' => 'baska biri'])['items']) === 1 && mark_person($onay, $a2['person']['id'])['ok']);
+check('arama yetkisi olmayana numara gitmez', person_view(['phone' => '+905321234567', 'attended_at' => null, 'attended_by' => null, 'id' => 1,
+    'full_name' => 'x', 'authority' => null, 'region' => null, 'group_name' => null, 'ref_no' => null, 'attended_by_name' => null, 'stance' => null],
+    ['id' => 0, 'role' => 'yok'])['phone'] === null);
+
+// "Bu cihazda açık kalsın"
+$_SESSION = ['uid' => $onay['id']];
+$known = bin2hex(random_bytes(32)); // testte çerezi biz bilelim: kaydı bu validator'a çevir
+$issue = function (int $uid) use ($known): string {
+    remember_issue($uid);
+    $sel = $_SESSION['rm'];
+    q('UPDATE remember_tokens SET validator_hash = ? WHERE selector = ?', [hash('sha256', $known), $sel]);
+    return $sel;
+};
+$sel = $issue($onay['id']);
+$r1 = remember_consume("$sel:$known");
+check('geçerli çerez giriş yapar ve yenilenir', $r1 && $r1['uid'] === $onay['id'] && is_string($r1['cookie']) && $r1['cookie'] !== "$sel:$known");
+check('DB\'de sadece özet (düz validator yok)', q('SELECT validator_hash FROM remember_tokens WHERE selector = ?', [$sel])->fetchColumn()
+    === hash('sha256', explode(':', $r1['cookie'])[1]));
+$r2 = remember_consume("$sel:$known");
+check('eski çerez kısa süre (eşzamanlı istek) kabul, yeni çerez yazılmaz', $r2 && $r2['uid'] === $onay['id'] && $r2['cookie'] === null);
+q('UPDATE remember_tokens SET rotated_at = UTC_TIMESTAMP() - INTERVAL 10 MINUTE WHERE selector = ?', [$sel]);
+$r3 = remember_consume("$sel:$known");
+check('süre geçince eski çerez = kopya: reddedilir, cihaz kaydı silinir', $r3 === null
+    && !q('SELECT COUNT(*) FROM remember_tokens WHERE selector = ?', [$sel])->fetchColumn());
+check('kopya yakalanınca yeni çerez de geçersiz', remember_consume($r1['cookie']) === null);
+check('bozuk / bilinmeyen çerez reddedilir', remember_consume('x:y') === null && remember_consume(str_repeat('a', 24) . ':' . str_repeat('b', 64)) === null);
+$sel2 = $issue($onay['id']);
+q('UPDATE users SET is_active = 0 WHERE id = ?', [$onay['id']]);
+check('pasif kullanıcının çerezi geçmez', remember_consume("$sel2:$known") === null);
+q('UPDATE users SET is_active = 1 WHERE id = ?', [$onay['id']]);
+$sel3 = $issue($onay['id']);
+q('UPDATE remember_tokens SET expires_at = UTC_TIMESTAMP() - INTERVAL 1 MINUTE WHERE selector = ?', [$sel3]);
+check('süresi dolan çerez geçmez', remember_consume("$sel3:$known") === null);
+remember_issue($onay['id']);
+$_SESSION = ['uid' => $yon['id']]; // işlemi yapan başkası
+$avBefore = (int) q('SELECT auth_version FROM users WHERE id = ?', [$onay['id']])->fetchColumn();
+revoke_user_sessions($onay['id']);
+check('cihazlardan çıkar: kayıtlar silinir, oturum sürümü artar', remember_device_count($onay['id']) === 0
+    && (int) q('SELECT auth_version FROM users WHERE id = ?', [$onay['id']])->fetchColumn() === $avBefore + 1);
+for ($i = 0; $i < REMEMBER_MAX_DEVICES + 3; $i++) {
+    remember_issue($onay['id']);
+}
+check('kullanıcı başına en fazla ' . REMEMBER_MAX_DEVICES . ' cihaz', remember_device_count($onay['id']) === REMEMBER_MAX_DEVICES);
+$_SESSION = [];
 
 check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
 q("DELETE FROM audit_log WHERE target = '__test__'");

@@ -1,4 +1,4 @@
-// Onay ekranı: arama, filtre, GELDİ / Geri al, "Bizimle mi?".
+// Onay ekranı: arama, filtre, GELDİ / Geri al, "Bizimle mi?", telefonla ara, yeni kişi ekle.
 // Kural: kişi verisi DOM'a sadece textContent ile girer (innerHTML yok).
 (function () {
   'use strict';
@@ -57,7 +57,20 @@
   // Önce kişinin adı (yetkili), sonra firma. Yetkilisi yazmayan şahıs firmasında unvan zaten kişi adıdır.
   function displayName(p) { return p.authority || p.full_name; }
 
-  function post(url, data) {
+  // Oturum kayıtlı cihazdan yeniden açıldıysa (telefon gece açık kaldı) sayfadaki CSRF anahtarı eskidir:
+  // yeni anahtarı herhangi bir sayfanın <meta>'sından al.
+  function refreshCsrf() {
+    return fetch(cfg.login, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var m = new DOMParser().parseFromString(html, 'text/html').querySelector('meta[name="csrf-token"]');
+        if (!m) throw new Error('csrf');
+        csrf = m.getAttribute('content');
+        document.querySelector('meta[name="csrf-token"]').setAttribute('content', csrf);
+      });
+  }
+
+  function post(url, data, retried) {
     var body = new URLSearchParams(data);
     var headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' };
     headers[CSRF_HEADER] = csrf;
@@ -65,10 +78,32 @@
       .then(function (r) {
         if (r.status === 401) { goLogin(); throw new Error('auth'); }
         return r.json().then(function (j) { j.httpStatus = r.status; return j; });
+      })
+      .then(function (j) {
+        if (j.csrf && !retried) return refreshCsrf().then(function () { return post(url, data, true); });
+        return j;
       });
   }
 
   /* ---------- kart ---------- */
+
+  // Telefon simgesi: dokununca telefonun arama ekranı açılır (tel: bağlantısı)
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function callLink(p) {
+    if (!p.phone || !/^\+\d{8,15}$/.test(p.phone)) return null; // sunucu zaten temizliyor; yine de doğrula
+    var a = el('a', 'btn btn-call');
+    a.href = 'tel:' + p.phone;
+    a.setAttribute('aria-label', displayName(p) + ' ara: ' + (p.phone_text || p.phone));
+    a.title = p.phone_text || p.phone;
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    var path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', 'M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z');
+    svg.appendChild(path);
+    a.appendChild(svg);
+    return a;
+  }
 
   function stanceControl(p) {
     var cur = p.stance || { value: null, label: 'Belirsiz', color: 'muted' };
@@ -137,6 +172,8 @@
       if (p.attended_by_name) done.appendChild(el('span', 'p-by', p.mine ? 'Siz işaretlediniz' : p.attended_by_name));
       act.appendChild(done);
     }
+    var call = callLink(p);
+    if (call) act.appendChild(call);
     if (p.can_unmark) {
       var u = el('button', 'btn btn-sm btn-ghost p-undo', 'Geri al');
       u.type = 'button';
@@ -298,6 +335,68 @@
     if (document.visibilityState === 'visible' && Date.now() - lastLoad > 15000) load(true);
   };
   document.addEventListener('visibilitychange', window.__onayVisibility);
+
+  /* ---------- yeni kişi (yönetici) ---------- */
+
+  var addModal = document.getElementById('add-modal');
+  var addOpen = document.getElementById('add-open');
+  if (addModal && addOpen) {
+    var addForm = document.getElementById('add-form');
+    var addErr = document.getElementById('add-error');
+    var addBtn = document.getElementById('add-submit');
+    var force = false;
+
+    var showErr = function (msg) { addErr.textContent = msg; addErr.hidden = !msg; };
+    var closeAdd = function () { if (addModal.open) addModal.close(); };
+
+    addOpen.addEventListener('click', function () {
+      showErr('');
+      force = false;
+      addBtn.textContent = 'Ekle';
+      if (addModal.showModal) addModal.showModal(); else addModal.setAttribute('open', '');
+      addForm.elements.name.focus();
+    });
+    addModal.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', closeAdd); });
+    // Form değişince "yine de ekle" onayı geçersiz olur
+    addForm.addEventListener('input', function () {
+      if (force) { force = false; addBtn.textContent = 'Ekle'; showErr(''); }
+    });
+
+    addForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var f = addForm.elements;
+      if (!f.name.value.trim()) { showErr('Ad soyad zorunlu.'); f.name.focus(); return; }
+      var data = {
+        name: f.name.value, firm: f.firm.value, phone: f.phone.value,
+        ref_no: f.ref_no.value, region: f.region.value, group: f.group.value
+      };
+      if (force) data.force = '1';
+      addBtn.disabled = true;
+      post(cfg.api.person, data)
+        .then(function (res) {
+          if (res.ok) {
+            closeAdd();
+            addForm.reset();
+            setStats(res.stats);
+            toast('✓ Eklendi: ' + displayName(res.person), 'success');
+            // Yeni kaydı hemen göster: aramaya adını yaz
+            els.q.value = displayName(res.person);
+            state.q = els.q.value;
+            load(true);
+            return;
+          }
+          if (res.httpStatus === 409 && res.similar) {
+            force = true;
+            addBtn.textContent = 'Yine de ekle';
+          }
+          showErr(res.error || 'Eklenemedi.');
+        })
+        .catch(function (err) {
+          if (err.message !== 'auth') showErr('Bağlantı yok, tekrar deneyin.');
+        })
+        .finally(function () { addBtn.disabled = false; });
+    });
+  }
 
   setStats(cfg.stats);
   load(true);

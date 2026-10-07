@@ -20,6 +20,11 @@ return [
     // Giriş denemesi sınırı (15 dakikada)
     'login_max_per_user' => 5,
     'login_max_per_ip'   => 30,
+    // "Bu cihazda oturumum açık kalsın": kaç gün (tarayıcı kapansa da giriş istemez).
+    // Şifre değişince, kullanıcı pasife alınınca ya da "Tüm cihazlardan çıkar" ile hepsi düşer.
+    'remember_days' => 30,
+    // Elle eklenen kişide sicil no yoksa yazılan değer (firma gruplamasında sicil sayılmaz).
+    'placeholder_ref' => '11111111',
     // "Bizimle mi?" sütunu seçenekleri: anahtar => [etiket, renk(success|warning|danger|muted)].
     // Anahtarlar DB'ye yazılır; bir anahtarı silerseniz o değerdeki kayıtlar "Belirsiz" görünür.
     'stance_options' => [

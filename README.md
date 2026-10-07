@@ -3,7 +3,8 @@
 Excel'den yüklenen üye listesinde onay ekibinin telefondan **GELDİ** işaretlediği küçük sistem.
 Roller:
 - **Admin**: her şey — kullanıcılar, liste yükleme, Excel'e aktarma, Bizimkiler yükleme/eşleştirme, denetim kaydı.
-- **Yönetici**: panel, GELDİ kayıtları, "Bizimle mi?" değiştirme, Bizimkiler listesini görme (yükleyemez, indiremez).
+- **Yönetici**: panel, GELDİ kayıtları, "Bizimle mi?" değiştirme, Bizimkiler listesini görme (yükleyemez, indiremez),
+  onay ekranında **+ Yeni kişi** ile listeye elle kişi ekleme.
 - **Onay Ekibi**: arama + GELDİ; bölge atanırsa sadece o bölge.
 
 Kartlarda önce kişinin adı (yetkili), altında firma görünür.
@@ -46,6 +47,28 @@ Notlar:
 Kayıt ekranı yok. Hesapları admin, **Kullanıcılar** sayfasından açar ve **şifreyi kendisi yazar**
 (en az 8 karakter); şifre değiştirmek için "Düzenle / şifre". Şifre hiçbir yerde gösterilmez ya da
 kaydedilmez. Kullanıcılar silinmez, pasife alınır; geçmişte kimin işaretlediği bozulmaz.
+
+## Telefon (ara simgesi)
+
+Kartta GELDİ'nin yanındaki telefon simgesine dokununca telefon o numarayı arar. Numara Excel'in
+**Gsm** sütunundan alınır (Gsm boşsa **Tel**). Yeni liste yüklerken Gsm/Tel sütunları kendiliğinden
+"Telefon" olarak seçili gelir. **Zaten yüklü listeye** telefon eklemek için: Liste yükle → aynı Excel →
+"Sadece telefonları güncelle" (sicil no ile eşleşir; kimse eklenmez, işaretler değişmez).
+Simgeyi kimin göreceği `src/auth.php` → `PERMISSIONS['call']` (şu an üç rol de).
+
+## Yeni kişi (elle)
+
+Admin ve yönetici, onay ekranında **+ Yeni kişi**: ad soyad (zorunlu), firma, telefon, sicil no, ilçe, grup.
+Sicil no boş bırakılırsa `11111111` yazılır (`config.php` → `placeholder_ref`). Aynı isim ya da aynı sicil
+listede varsa uyarır; "Yine de ekle" ile eklenir. Her ekleme Denetim'e yazılır.
+
+## "Bu cihazda oturumum açık kalsın"
+
+Girişte işaretliyse (varsayılan) tarayıcı kapanıp açılınca tekrar şifre sorulmaz (`remember_days`, 30 gün).
+Ortak ya da başkasının telefonunda işareti kaldırın. Güvenlik: çerezde tek kullanımlık anahtar, DB'de sadece
+özeti; her kullanımda yenilenir, kopyalanmış eski anahtar gelirse o cihaz iptal edilir ve Denetim'e
+"Şüpheli cihaz çerezi" yazılır. Şifre değişince, kullanıcı pasife alınınca ya da Kullanıcılar →
+**Cihazlardan çıkar** ile o kullanıcının tüm cihazları ve açık oturumları anında düşer.
 
 ## Bizimkiler
 

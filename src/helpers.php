@@ -71,7 +71,8 @@ function csrf_verify(): void
     $sent = $_POST['_csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!is_string($sent) || empty($_SESSION['_csrf']) || !hash_equals($_SESSION['_csrf'], $sent)) {
         if (is_api_request()) {
-            json_response(['ok' => false, 'error' => 'Oturum doğrulaması başarısız, sayfayı yenileyin.'], 403); // 419 değil: Apache tanımıyor, 500'e çeviriyor
+            // csrf:true -> istemci yeni anahtarı alıp bir kez tekrar dener (kayıtlı cihazla oturum yenilendiyse)
+            json_response(['ok' => false, 'csrf' => true, 'error' => 'Oturum doğrulaması başarısız, sayfayı yenileyin.'], 403); // 419 değil: Apache tanımıyor, 500'e çeviriyor
         }
         http_response_code(403);
         exit('Oturum doğrulaması başarısız. Sayfayı yenileyip tekrar deneyin.');

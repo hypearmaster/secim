@@ -8,7 +8,7 @@ Liste kişi değil **oda üyesi firma** listesi. Tek sayfa, sayfa adı = grup ("
 Sütunlar: `Sno, OSicilNo, Unvan, Nace, Ilce, Tel, Gsm, Mail, Adres, ortaklar, yetkililer, Temsil`.
 Eşleme: Unvan → `full_name` (kartta büyük ad), OSicilNo → `ref_no`, Ilce → `region`,
 yetkililer → `authority` (**`names_only()` ile**: doğum tarihi/yeri atılır), grup → sayfa adı
-(import ekranında değiştirilebilir sabit değer). Tel/Gsm/Mail/Adres/ortaklar/Temsil/Nace **alınmaz**.
+(import ekranında değiştirilebilir sabit değer). Mail/Adres/ortaklar/Temsil/Nace **alınmaz**. Gsm (yoksa Tel) → `phone` (+90…, sadece kartta ara simgesi; `can('call')`).
 Ekranlarda etiketler: "Unvan", "Yetkili", "İlçe", "Grup", "Sicil No".
 Yeni alan **"Bizimle mi?"** (`people.stance`): seçenekler `config('stance_options')`,
 yetki `stance` (admin+yönetici), API `POST api/stance.php` (`person_id`, `value`).

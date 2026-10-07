@@ -117,10 +117,10 @@ function insert_person(int $eventId, ?int $batchId, array $data): int
     $authority = clean_text($data['authority'] ?? null, 255);
     $extra = !empty($data['extra']) ? json_encode($data['extra'], JSON_UNESCAPED_UNICODE) : null;
     q(
-        'INSERT INTO people (event_id, batch_id, ref_no, full_name, authority, region, group_name, stance, extra, search_key, firm_key, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+        'INSERT INTO people (event_id, batch_id, ref_no, phone, full_name, authority, region, group_name, stance, extra, search_key, firm_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
         [
-            $eventId, $batchId, $refNo, $fullName,
+            $eventId, $batchId, $refNo, normalize_phone($data['phone'] ?? null), $fullName,
             $authority,
             clean_text($data['region'] ?? null, 120),
             clean_text($data['group_name'] ?? null, 120),
@@ -144,12 +144,62 @@ function firm_key(string $fullName, ?string $authority, ?string $refNo): string
     if ($a !== '') {
         return mb_substr('a:' . $a . '|' . implode(' ', array_slice(explode(' ', search_key($fullName)), 0, 3)), 0, 255);
     }
+    // Yer tutucu sicil (elle eklenen, sicilsiz): her biri kendi kartı. Aynı sicil sayılsa hepsi tek
+    // kartta birleşir, isimle birleşse "yine de ekle" denen aynı adlı iki farklı kişi tek GELDİ'yle işaretlenir.
+    if ($refNo !== null && $refNo === (string) config('placeholder_ref', '11111111')) {
+        return 'm:' . bin2hex(random_bytes(8));
+    }
     return mb_substr($refNo !== null && $refNo !== '' ? 'r:' . $refNo : 'n:' . search_key($fullName), 0, 255);
+}
+
+/* ---------- Telefon ---------- */
+
+/**
+ * Excel'deki / elle yazılan numarayı aranabilir biçime çevirir: "0532 123 45 67", "5321234567",
+ * "+90 (532) 123-45-67" -> "+905321234567". +'lı yabancı numara rakamlarıyla kalır.
+ * Numara gibi görünmüyorsa null.
+ */
+function normalize_phone(mixed $value): ?string
+{
+    $s = clean_text($value, 40);
+    if ($s === null) {
+        return null;
+    }
+    $intl = str_starts_with($s, '+') || str_starts_with($s, '00');
+    $d = preg_replace('/\D+/', '', $s) ?? '';
+    if (str_starts_with($s, '00')) {
+        $d = substr($d, 2);
+    }
+    return match (true) {
+        strlen($d) === 10 && $d[0] !== '0'          => '+90' . $d,            // 5321234567 / 2421234567
+        strlen($d) === 11 && $d[0] === '0'          => '+90' . substr($d, 1), // 05321234567
+        strlen($d) === 12 && str_starts_with($d, '90') => '+' . $d,           // 905321234567
+        $intl && strlen($d) >= 8 && strlen($d) <= 15 => '+' . $d,             // yabancı numara
+        default => null,
+    };
+}
+
+/** "+905321234567" -> "0532 123 45 67" (ekranda / ipucunda). */
+function phone_display(?string $phone): string
+{
+    if ($phone === null || $phone === '') {
+        return '';
+    }
+    if (preg_match('/^\+90(\d{3})(\d{3})(\d{2})(\d{2})$/', $phone, $m)) {
+        return "0$m[1] $m[2] $m[3] $m[4]";
+    }
+    return $phone;
+}
+
+/** Cep numarası mı (Türkiye 5xx)? Firmada hem sabit hem cep varsa cep tercih edilir. */
+function is_mobile_phone(?string $phone): bool
+{
+    return $phone !== null && str_starts_with($phone, '+905');
 }
 
 /* ---------- Okuma ---------- */
 
-const PERSON_SELECT = 'SELECT p.id, p.event_id, p.firm_key, p.ref_no, p.full_name, p.authority, p.region, p.group_name, p.stance,
+const PERSON_SELECT = 'SELECT p.id, p.event_id, p.firm_key, p.ref_no, p.phone, p.full_name, p.authority, p.region, p.group_name, p.stance,
         p.attended_at, p.attended_by, u.full_name AS attended_by_name
     FROM people p LEFT JOIN users u ON u.id = p.attended_by';
 
@@ -174,6 +224,8 @@ function person_view(array $row, array $user): array
         'region'           => $row['region'],
         'group_name'       => $row['group_name'],
         'ref_no'           => $row['ref_no'],
+        // numara sadece arama yetkisi olana gider (kapsam dışındaki kişinin zaten kartı yok)
+        'phone'            => can('call', $user) ? ($row['phone'] ?? null) : null,
         'attended'         => $attended,
         'attended_time'    => fmt_time($row['attended_at']),
         'attended_by_name' => $row['attended_by_name'],
@@ -215,6 +267,8 @@ function group_view(array $members, array $user): array
     $regions = array_values(array_unique(array_filter(array_column($views, 'region'))));
     $groups = array_values(array_unique(array_filter(array_column($views, 'group_name'))));
     $refs = array_values(array_filter(array_column($views, 'ref_no')));
+    $phones = array_values(array_unique(array_filter(array_column($views, 'phone'))));
+    usort($phones, fn($a, $b) => is_mobile_phone($b) <=> is_mobile_phone($a)); // cep önce
     return [
         'id'               => $first['id'],
         'count'            => count($views),
@@ -226,6 +280,8 @@ function group_view(array $members, array $user): array
         'regions'          => $regions,
         'group_name'       => implode(', ', $groups) ?: null,
         'ref_no'           => count($refs) > 1 ? count($refs) . ' sicil' : ($refs[0] ?? null),
+        'phone'            => $phones[0] ?? null,
+        'phone_text'       => phone_display($phones[0] ?? null),
         'attended'         => count($came) === count($views),          // hepsi geldi
         'attended_time'    => $lastCame['attended_time'] ?? '',
         'attended_by_name' => $lastCame['attended_by_name'] ?? null,
@@ -679,4 +735,80 @@ function unmark_person(array $user, int $personId): array
         'ok' => false, 'status' => 403, 'person' => $view,
         'error' => "Sadece kendi işaretinizi $min dakika içinde geri alabilirsiniz. Yöneticiye başvurun.",
     ];
+}
+
+/* ---------- Elle kişi ekleme (yönetici) ---------- */
+
+/**
+ * Aktif listeye tek kişi ekler. $in: name (zorunlu, kişinin adı), firm, ref_no, phone, region, group.
+ * Firma yazılırsa kartta ad = kişi (yetkili), altında firma; yazılmazsa kişi adı unvan olur.
+ * Sicil no boşsa config('placeholder_ref') yazılır. Aynı isim / aynı sicil varsa $force olmadan eklemez.
+ * @return array{ok:bool, status:int, error?:string, similar?:list<string>, person?:array, id?:int}
+ */
+function add_person(array $user, array $in, bool $force = false): array
+{
+    if (!can('add_person', $user)) {
+        return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
+    }
+    $event = active_event();
+    if ($event === null) {
+        return ['ok' => false, 'status' => 409, 'error' => 'Aktif liste yok, önce liste yükleyin.'];
+    }
+    $placeholder = (string) config('placeholder_ref', '11111111');
+    $name = clean_text($in['name'] ?? null, 160);
+    $firm = clean_text($in['firm'] ?? null, 160);
+    $ref = clean_text($in['ref_no'] ?? null, 64);
+    $phoneRaw = clean_text($in['phone'] ?? null, 40);
+    $phone = normalize_phone($phoneRaw);
+    $problem = match (true) {
+        $name === null => 'Ad soyad zorunlu.',
+        $ref !== null && !preg_match('/^[\p{L}\p{N}\/._-]{1,64}$/u', $ref) => 'Sicil no sadece harf, rakam ve / . _ - içerebilir.',
+        $phoneRaw !== null && $phone === null => 'Telefon numarası geçersiz. Örnek: 0532 123 45 67',
+        default => null,
+    };
+    if ($problem !== null) {
+        return ['ok' => false, 'status' => 422, 'error' => $problem];
+    }
+    $ref ??= $placeholder;
+
+    if (!$force) {
+        // Aynı kişi (yetkili adı ya da unvanı birebir) ya da aynı gerçek sicil listede var mı?
+        [$scope, $params] = people_scope($user);
+        $key = search_key($name);
+        $words = array_slice(array_filter(explode(' ', $key)), 0, 6);
+        $sql = implode(' AND ', array_fill(0, count($words), 'p.search_key LIKE ?')) ?: '1 = 0';
+        $p = [...$params, ...array_map(fn($w) => '%' . like_escape($w) . '%', $words)];
+        if ($ref !== $placeholder) {
+            $sql = "($sql) OR p.ref_no = ?";
+            $p[] = $ref;
+        }
+        $similar = [];
+        foreach (q("SELECT p.full_name, p.authority, p.ref_no FROM people p WHERE $scope AND ($sql) LIMIT 200", $p)->fetchAll() as $r) {
+            $names = array_map('search_key', [$r['full_name'], ...explode(',', (string) $r['authority'])]);
+            if (in_array($key, $names, true) || ($ref !== $placeholder && $r['ref_no'] === $ref)) {
+                $similar[] = $r['authority'] ? $r['authority'] . ' (' . $r['full_name'] . ')' : $r['full_name'];
+            }
+        }
+        if ($similar) {
+            $similar = array_slice(array_values(array_unique($similar)), 0, 5);
+            return ['ok' => false, 'status' => 409, 'similar' => $similar,
+                    'error' => 'Listede aynı kayıt var: ' . implode('; ', $similar) . '. Yine de eklensin mi?'];
+        }
+    }
+
+    $id = insert_person($event['id'], null, [
+        'full_name'  => $firm ?? $name,
+        'authority'  => $firm !== null ? $name : null,
+        'ref_no'     => $ref,
+        'phone'      => $phone,
+        'region'     => $in['region'] ?? null,
+        'group_name' => $in['group'] ?? null,
+        'extra'      => ['Kaynak' => 'Elle eklendi', 'Ekleyen' => $user['full_name']],
+    ]);
+    audit('person_create', $name, array_filter([
+        'firma' => $firm, 'sicil' => $ref, 'telefon' => $phone !== null ? 'var' : null,
+        'ilçe' => clean_text($in['region'] ?? null, 120), 'grup' => clean_text($in['group'] ?? null, 120),
+        'aynı kayıt uyarısı geçildi' => $force ? 'evet' : null,
+    ]), $user['id']);
+    return ['ok' => true, 'status' => 200, 'id' => $id, 'person' => group_view(find_group($user, $id), $user)];
 }
