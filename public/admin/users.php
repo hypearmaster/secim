@@ -1,0 +1,250 @@
+<?php
+require __DIR__ . '/../../src/bootstrap.php';
+
+$user = require_perm('manage_users');
+
+if (is_post()) {
+    csrf_verify();
+    $action = $_POST['action'] ?? '';
+    $targetId = (int) ($_POST['id'] ?? 0);
+
+    if ($action === 'create') {
+        $username = clean_text($_POST['username'] ?? '', 64);
+        $fullName = clean_text($_POST['full_name'] ?? '', 120);
+        $role = $_POST['role'] ?? '';
+        $region = clean_text($_POST['region'] ?? '', 120) ?: null;
+
+        if (!$username || !valid_username($username)) {
+            flash('error', 'Geçersiz kullanıcı adı.');
+        } elseif (!$fullName) {
+            flash('error', 'Ad soyad zorunlu.');
+        } elseif (!isset(ROLES[$role])) {
+            flash('error', 'Geçersiz rol.');
+        } else {
+            $exists = q('SELECT 1 FROM users WHERE username = ?', [$username])->fetch();
+            if ($exists) {
+                flash('error', 'Bu kullanıcı adı zaten kullanılıyor.');
+            } else {
+                $pw = generate_password();
+                $hash = password_hash($pw, PASSWORD_DEFAULT);
+                q('INSERT INTO users (username, password_hash, full_name, role, region, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, UTC_TIMESTAMP())', [$username, $hash, $fullName, $role, $region]);
+                flash('success', 'Kullanıcı oluşturuldu. Şifre (bir kez gösterilir): ' . $pw);
+            }
+        }
+        redirect('admin/users.php');
+    }
+
+    if ($targetId) {
+        $target = q('SELECT * FROM users WHERE id = ?', [$targetId])->fetch();
+        if ($target) {
+            if ($action === 'reset_pw') {
+                $pw = generate_password();
+                $hash = password_hash($pw, PASSWORD_DEFAULT);
+                q('UPDATE users SET password_hash = ? WHERE id = ?', [$hash, $targetId]);
+                flash('success', 'Şifre sıfırlandı. Yeni şifre (bir kez gösterilir): ' . $pw);
+            } elseif ($action === 'toggle_active') {
+                if ($targetId === $user['id']) {
+                    flash('error', 'Kendinizi pasife alamazsınız.');
+                } else {
+                    $newActive = (int) $target['is_active'] ? 0 : 1;
+                    if ($newActive === 0) {
+                        $activeAdmins = (int) q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn();
+                        if ($activeAdmins <= 1 && $target['role'] === 'admin') {
+                            flash('error', 'Son aktif admin pasife alınamaz.');
+                        } else {
+                            q('UPDATE users SET is_active = ? WHERE id = ?', [$newActive, $targetId]);
+                            flash('success', $newActive ? 'Kullanıcı aktif edildi.' : 'Kullanıcı pasife alındı.');
+                        }
+                    } else {
+                        q('UPDATE users SET is_active = ? WHERE id = ?', [$newActive, $targetId]);
+                        flash('success', 'Kullanıcı aktif edildi.');
+                    }
+                }
+            } elseif ($action === 'edit') {
+                if ($targetId === $user['id'] && ($_POST['role'] ?? '') !== $target['role']) {
+                    flash('error', 'Kendi rolünüzü değiştiremezsiniz.');
+                } else {
+                    $newRole = $_POST['role'] ?? '';
+                    $newRegion = clean_text($_POST['region'] ?? '', 120) ?: null;
+                    $newName = clean_text($_POST['full_name'] ?? '', 120);
+                    if (!isset(ROLES[$newRole]) || !$newName) {
+                        flash('error', 'Geçersiz veri.');
+                    } else {
+                        if ($newRole !== $target['role']) {
+                            $activeAdmins = (int) q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn();
+                            if ($activeAdmins <= 1 && $target['role'] === 'admin' && $newRole !== 'admin') {
+                                flash('error', 'Son aktif adminin rolü düşürülemez.');
+                            } else {
+                                q('UPDATE users SET full_name = ?, role = ?, region = ? WHERE id = ?', [$newName, $newRole, $newRegion, $targetId]);
+                                flash('success', 'Kullanıcı güncellendi.');
+                            }
+                        } else {
+                            q('UPDATE users SET full_name = ?, region = ? WHERE id = ?', [$newName, $newRegion, $targetId]);
+                            flash('success', 'Kullanıcı güncellendi.');
+                        }
+                    }
+                }
+            }
+        }
+        redirect('admin/users.php');
+    }
+}
+
+// Listeleme
+$page = max(1, (int) ($_GET['page'] ?? 1));
+$perPage = 50;
+$offset = ($page - 1) * $perPage;
+
+$where = '1=1';
+$params = [];
+$qStr = trim($_GET['q'] ?? '');
+if ($qStr !== '') {
+    $where .= ' AND (username LIKE ? OR full_name LIKE ?)';
+    $params[] = '%' . like_escape($qStr) . '%';
+    $params[] = '%' . like_escape($qStr) . '%';
+}
+
+$total = (int) q("SELECT COUNT(*) FROM users WHERE $where", $params)->fetchColumn();
+$usersList = q("SELECT * FROM users WHERE $where ORDER BY id DESC LIMIT ? OFFSET ?", [...$params, $perPage, $offset])->fetchAll();
+$totalPages = max(1, (int) ceil($total / $perPage));
+
+$regions = q("SELECT DISTINCT region FROM users WHERE region IS NOT NULL AND region <> '' ORDER BY region")->fetchAll(PDO::FETCH_COLUMN);
+$regions = array_merge($regions, q("SELECT DISTINCT region FROM people WHERE region IS NOT NULL AND region <> '' ORDER BY region")->fetchAll(PDO::FETCH_COLUMN));
+$regions = array_unique($regions);
+
+$editId = (int) ($_GET['edit'] ?? 0);
+$editUser = $editId ? q('SELECT * FROM users WHERE id = ?', [$editId])->fetch() : null;
+
+render_header('Kullanıcılar', 'users', ['admin.css']);
+?>
+<main class="container">
+<div class="stack">
+    <section class="card">
+        <h2><?= $editUser ? 'Düzenle' : 'Yeni Kullanıcı' ?></h2>
+        <form method="post" class="stack">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="<?= $editUser ? 'edit' : 'create' ?>">
+            <?php if ($editUser): ?>
+                <input type="hidden" name="id" value="<?= e($editUser['id']) ?>">
+            <?php endif; ?>
+            <div class="field">
+                <span>Kullanıcı Adı</span>
+                <input class="input" type="text" name="username" value="<?= e($editUser['username'] ?? '') ?>" <?= $editUser ? 'readonly' : 'required' ?> pattern="[a-zA-Z0-9._-]{3,64}" title="Harf, rakam, nokta, alt çizgi, tire; 3-64 karakter">
+                <?php if (!$editUser): ?><small>Benzersiz olmalı. Sadece harf, rakam, . _ - izin verilir.</small><?php endif; ?>
+            </div>
+            <div class="field">
+                <span>Ad Soyad</span>
+                <input class="input" type="text" name="full_name" value="<?= e($editUser['full_name'] ?? '') ?>" required maxlength="120">
+            </div>
+            <div class="field">
+                <span>Rol</span>
+                <select class="input" name="role" required>
+                    <?php foreach (ROLES as $rKey => $rLabel): ?>
+                        <option value="<?= e($rKey) ?>" <?= ($editUser['role'] ?? '') === $rKey ? 'selected' : '' ?>><?= e($rLabel) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field">
+                <span>Bölge (opsiyonel)</span>
+                <input class="input" type="text" name="region" value="<?= e($editUser['region'] ?? '') ?>" list="regions" maxlength="120">
+                <datalist id="regions">
+                    <?php foreach ($regions as $reg): ?>
+                        <option value="<?= e($reg) ?>">
+                    <?php endforeach; ?>
+                </datalist>
+                <small>Onaycı için bölge seçilirse sadece o bölgeyi görür. Boş = tüm bölgeler.</small>
+            </div>
+            <?php if (!$editUser): ?>
+                <small class="muted">Şifre otomatik üretilecek ve bir kez gösterilecektir.</small>
+            <?php endif; ?>
+            <div class="row">
+                <button type="submit" class="btn"><?= $editUser ? 'Güncelle' : 'Oluştur' ?></button>
+                <?php if ($editUser): ?>
+                    <a class="btn btn-ghost" href="<?= e(url('admin/users.php')) ?>">İptal</a>
+                <?php endif; ?>
+            </div>
+        </form>
+    </section>
+<section class="card">
+        <h2>Kullanıcı Listesi</h2>
+        <form method="get" class="row" style="margin-bottom: 12px;">
+            <input class="input" type="text" name="q" value="<?= e($qStr) ?>" placeholder="Kullanıcı adı / ad soyad ara..." style="max-width: 300px;">
+            <button type="submit" class="btn">Ara</button>
+            <?php if ($qStr): ?>
+                <a class="btn btn-ghost" href="<?= e(url('admin/users.php')) ?>">Temizle</a>
+            <?php endif; ?>
+        </form>
+        <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Kullanıcı Adı</th>
+                    <th>Ad Soyad</th>
+                    <th>Rol</th>
+                    <th>Bölge</th>
+                    <th>Durum</th>
+                    <th>Son Giriş</th>
+                    <th>İşlemler</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($usersList as $u): ?>
+                <tr>
+                    <td><?= e($u['username']) ?></td>
+                    <td><?= e($u['full_name']) ?></td>
+                    <td><span class="badge badge-role"><?= e(ROLES[$u['role']]) ?></span></td>
+                    <td><?= e($u['region'] ?? '—') ?></td>
+                    <td>
+                        <span class="badge badge-<?= $u['is_active'] ? 'success' : 'danger' ?>">
+                            <?= $u['is_active'] ? 'Aktif' : 'Pasif' ?>
+                        </span>
+                    </td>
+                    <td><?= $u['last_login_at'] ? e(fmt_datetime($u['last_login_at'])) : '—' ?></td>
+                    <td>
+                        <div class="row" style="gap: 4px;">
+                            <?php if (!$editUser || $editUser['id'] !== $u['id']): ?>
+                                <a class="btn btn-sm" href="<?= e(url('admin/users.php?edit=' . $u['id'])) ?>">Düzenle</a>
+                                <form method="post" class="inline" onsubmit="return confirm('Şifre sıfırlansın mı? Yeni şifre sadece bir kez gösterilir.');">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="reset_pw">
+                                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
+                                    <button type="submit" class="btn btn-sm">Şifre Sıfırla</button>
+                                </form>
+                                <form method="post" class="inline" onsubmit="return confirm('Durum değiştirilsin mi?');">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="toggle_active">
+                                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
+                                    <button type="submit" class="btn btn-sm <?= $u['is_active'] ? 'btn-ghost' : '' ?>"><?= $u['is_active'] ? 'Pasife Al' : 'Aktif Et' ?></button>
+                                </form>
+                            <?php else: ?>
+                                <span class="muted">Düzenleniyor…</span>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (!$usersList): ?>
+                <tr><td colspan="7" class="empty">Kullanıcı yok.</td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+        </div>
+
+        <?php if ($totalPages > 1): ?>
+        <nav class="row" style="justify-content: center; margin-top: 12px;">
+            <?php
+            $query = $_GET;
+            for ($p = 1; $p <= $totalPages; $p++) {
+                $query['page'] = $p;
+                $href = url('admin/users.php?' . http_build_query($query));
+                $cls = $p === $page ? 'btn' : 'btn btn-ghost';
+                echo '<a class="' . $cls . '" href="' . e($href) . '">' . $p . '</a>';
+            }
+            ?>
+        </nav>
+        <?php endif; ?>
+    </section>
+</div>
+</main>
+<?php
+render_footer();

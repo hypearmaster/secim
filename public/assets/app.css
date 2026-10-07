@@ -63,7 +63,9 @@ a { color: var(--primary); }
 
 /* ---------- Badge / chip ---------- */
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 600; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; }
-.badge-role { background: rgba(255,255,255,.12); color: #e2e8f0; border-color: transparent; }
+.badge-role { background: var(--primary-soft); color: var(--primary-hover); border-color: transparent; }
+.topbar .badge-role { background: rgba(255,255,255,.12); color: #e2e8f0; }
+.badge-muted { background: var(--surface-2); color: var(--muted); }
 .badge-success { background: var(--success-soft); color: var(--success); border-color: transparent; }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .badge-warning { background: var(--warning-soft); color: var(--warning); border-color: transparent; }
