@@ -39,7 +39,7 @@ function render_header(string $title, string $active = '', array $extraCss = [])
 <link rel="stylesheet" href="<?= e(asset_url($css)) ?>">
 <?php endforeach; ?>
 </head>
-<body>
+<body data-base="<?= e(rtrim((string) config('base_url', ''), '/')) ?>">
 <?php if ($user): ?>
 <header class="topbar">
   <div class="topbar-row">
@@ -80,6 +80,8 @@ function asset_url(string $file): string
 
 function render_footer(array $scripts = []): void
 {
+    // Sayfa yenilemeden gezinme her sayfada; sayfaya özel scriptler ondan sonra
+    echo '<script src="' . e(asset_url('nav.js')) . '"></script>' . "\n";
     foreach ($scripts as $js) {
         echo '<script src="' . e(asset_url($js)) . '" defer></script>' . "\n";
     }

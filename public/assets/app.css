@@ -141,3 +141,7 @@ textarea.input { min-height: 96px; }
 /* "Bizimle" satırı (Kayıtlar, Panel tabloları) */
 .table tr.row-bizimle td { background: var(--bizimle-soft); }
 .table tr.row-bizimle td:first-child { box-shadow: inset 4px 0 0 var(--bizimle); }
+
+/* Sayfa geçişinde üstte ince yükleme çubuğu (nav.js) */
+#nav-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--primary); z-index: 100; opacity: 0; transition: width .3s ease, opacity .2s; pointer-events: none; }
+#nav-progress.is-on { width: 70%; opacity: 1; transition: width 2s cubic-bezier(.1,.7,.2,1), opacity .1s; }

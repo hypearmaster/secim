@@ -193,7 +193,15 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
 </main>
 
 <script>
-setTimeout(function() { window.location.reload(); }, 60000);
+(function () {
+    // 60 sn'de bir tazele — sadece kullanıcı hâlâ paneldeyse (başka sayfaya geçtiyse dokunma)
+    var stamp = Date.now();
+    document.body.setAttribute('data-dashboard', stamp);
+    setTimeout(function () {
+        if (document.body.getAttribute('data-dashboard') !== String(stamp)) return;
+        window.secimNav ? window.secimNav.reload() : window.location.reload();
+    }, 60000);
+})();
 </script>
 <?php
 render_footer();

@@ -292,9 +292,12 @@
   });
 
   // Sekmeye geri dönülünce (başka onaycılar da işaretliyor) listeyi tazele
-  document.addEventListener('visibilitychange', function () {
+  if (window.__onayVisibility) document.removeEventListener('visibilitychange', window.__onayVisibility);
+  window.__onayVisibility = function () {
+    if (!document.body.contains(root)) return; // onay ekranından ayrıldık
     if (document.visibilityState === 'visible' && Date.now() - lastLoad > 15000) load(true);
-  });
+  };
+  document.addEventListener('visibilitychange', window.__onayVisibility);
 
   setStats(cfg.stats);
   load(true);

@@ -32,9 +32,12 @@ if (is_post()) {
                 q('INSERT INTO users (username, password_hash, full_name, role, region, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, UTC_TIMESTAMP())', [$username, $hash, $fullName, $role, $region]);
                 audit('user_create', $username, ['rol' => ROLES[$role], 'bölge' => $region]);
                 flash('success', "Kullanıcı oluşturuldu: $username");
+                redirect('admin/users.php');
             }
         }
-        redirect('admin/users.php');
+        // Hata: modal yeniden açılsın, yazılanlar (şifre HARİÇ) dolu gelsin
+        $_SESSION['old_user'] = ['username' => $username, 'full_name' => $fullName, 'role' => $role, 'region' => $region];
+        redirect('admin/users.php?new=1');
     }
 
     if ($targetId) {
@@ -123,62 +126,90 @@ $regions = array_merge($regions, q("SELECT DISTINCT region FROM people WHERE reg
 $regions = array_unique($regions);
 
 $editId = (int) ($_GET['edit'] ?? 0);
-$editUser = $editId ? q('SELECT * FROM users WHERE id = ?', [$editId])->fetch() : null;
+$editUser = $editId ? (q('SELECT * FROM users WHERE id = ?', [$editId])->fetch() ?: null) : null;
+$old = $_SESSION['old_user'] ?? [];
+unset($_SESSION['old_user']);
+$showModal = $editUser !== null || isset($_GET['new']);
+$form = $editUser ?? $old; // düzenleme: kayıt; hata sonrası yeni kullanıcı: yazılanlar
 
 render_header('Kullanıcılar', 'users', ['admin.css']);
 ?>
 <main class="container">
 <div class="stack">
-    <section class="card">
-        <h2><?= $editUser ? 'Düzenle' : 'Yeni Kullanıcı' ?></h2>
-        <form method="post" class="stack">
-            <?= csrf_field() ?>
-            <input type="hidden" name="action" value="<?= $editUser ? 'edit' : 'create' ?>">
-            <?php if ($editUser): ?>
-                <input type="hidden" name="id" value="<?= e($editUser['id']) ?>">
-            <?php endif; ?>
-            <div class="field">
-                <span>Kullanıcı Adı</span>
-                <input class="input" type="text" name="username" value="<?= e($editUser['username'] ?? '') ?>" <?= $editUser ? 'readonly' : 'required' ?> pattern="[a-zA-Z0-9._-]{3,64}" title="Harf, rakam, nokta, alt çizgi, tire; 3-64 karakter">
-                <?php if (!$editUser): ?><small>Benzersiz olmalı. Sadece harf, rakam, . _ - izin verilir.</small><?php endif; ?>
-            </div>
-            <div class="field">
-                <span>Ad Soyad</span>
-                <input class="input" type="text" name="full_name" value="<?= e($editUser['full_name'] ?? '') ?>" required maxlength="120">
-            </div>
+<dialog class="modal" id="user-modal" aria-labelledby="user-modal-title">
+    <form method="post" class="stack modal-body">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="<?= $editUser ? 'edit' : 'create' ?>">
+        <?php if ($editUser): ?>
+            <input type="hidden" name="id" value="<?= e($editUser['id']) ?>">
+        <?php endif; ?>
+        <div class="modal-head">
+            <h2 id="user-modal-title"><?= $editUser ? 'Düzenle: ' . e($editUser['username']) : 'Yeni kullanıcı' ?></h2>
+            <a class="btn btn-ghost btn-sm modal-x" href="<?= e(url('admin/users.php')) ?>" aria-label="Kapat">✕</a>
+        </div>
+        <div class="field">
+            <span>Kullanıcı adı</span>
+            <input class="input" type="text" name="username" value="<?= e($form['username'] ?? '') ?>" <?= $editUser ? 'readonly' : 'required autofocus' ?> pattern="[a-zA-Z0-9._-]{3,64}" title="Harf, rakam, nokta, alt çizgi, tire; 3-64 karakter" autocapitalize="none" autocomplete="off">
+            <?php if (!$editUser): ?><small>Benzersiz olmalı. Sadece harf, rakam, . _ - izin verilir.</small><?php endif; ?>
+        </div>
+        <div class="field">
+            <span>Ad soyad</span>
+            <input class="input" type="text" name="full_name" value="<?= e($form['full_name'] ?? '') ?>" required maxlength="120">
+        </div>
+        <div class="modal-grid">
             <div class="field">
                 <span>Rol</span>
                 <select class="input" name="role" required>
                     <?php foreach (ROLES as $rKey => $rLabel): ?>
-                        <option value="<?= e($rKey) ?>" <?= ($editUser['role'] ?? '') === $rKey ? 'selected' : '' ?>><?= e($rLabel) ?></option>
+                        <option value="<?= e($rKey) ?>" <?= ($form['role'] ?? 'onayci') === $rKey ? 'selected' : '' ?>><?= e($rLabel) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
             <div class="field">
                 <span>Bölge (opsiyonel)</span>
-                <input class="input" type="text" name="region" value="<?= e($editUser['region'] ?? '') ?>" list="regions" maxlength="120">
+                <input class="input" type="text" name="region" value="<?= e($form['region'] ?? '') ?>" list="regions" maxlength="120">
                 <datalist id="regions">
                     <?php foreach ($regions as $reg): ?>
                         <option value="<?= e($reg) ?>">
                     <?php endforeach; ?>
                 </datalist>
-                <small>Onaycı için bölge seçilirse sadece o bölgeyi görür. Boş = tüm bölgeler.</small>
             </div>
-            <div class="field">
-                <span><?= $editUser ? 'Yeni şifre' : 'Şifre' ?></span>
-                <input class="input" type="password" name="new_password" minlength="8" maxlength="72" autocomplete="new-password"<?= $editUser ? '' : ' required' ?>>
-                <small><?= $editUser ? 'Boş bırakırsanız şifre değişmez. ' : '' ?>En az 8 karakter. Kullanıcıya siz iletin; şifre hiçbir yerde gösterilmez ya da kaydedilmez.</small>
-            </div>
-            <div class="row">
-                <button type="submit" class="btn btn-primary"><?= $editUser ? 'Güncelle' : 'Oluştur' ?></button>
-                <?php if ($editUser): ?>
-                    <a class="btn btn-ghost" href="<?= e(url('admin/users.php')) ?>">İptal</a>
-                <?php endif; ?>
-            </div>
-        </form>
-    </section>
+        </div>
+        <small class="muted" style="margin-top:-6px">Onay ekibine bölge verilirse sadece o bölgeyi (ve bölgesiz kayıtları) görür. Boş = tüm bölgeler.</small>
+        <div class="field">
+            <span><?= $editUser ? 'Yeni şifre' : 'Şifre' ?></span>
+            <input class="input" type="password" name="new_password" minlength="8" maxlength="72" autocomplete="new-password"<?= $editUser ? '' : ' required' ?>>
+            <small><?= $editUser ? 'Boş bırakırsanız şifre değişmez. ' : '' ?>En az 8 karakter. Kullanıcıya siz iletin; şifre hiçbir yerde gösterilmez ya da kaydedilmez.</small>
+        </div>
+        <div class="row modal-actions">
+            <a class="btn btn-ghost" href="<?= e(url('admin/users.php')) ?>">Vazgeç</a>
+            <button type="submit" class="btn btn-primary"><?= $editUser ? 'Kaydet' : 'Oluştur' ?></button>
+        </div>
+    </form>
+</dialog>
+<?php if ($showModal): ?>
+<script>
+(function () {
+    var d = document.getElementById('user-modal');
+    if (!d) return;
+    // Hata/bilgi mesajı karartılmış zeminin altında kalmasın: modalın içine taşı
+    var head = d.querySelector('.modal-head');
+    document.querySelectorAll('.flash').forEach(function (f) { head.after(f); f.style.margin = '0'; f.style.width = 'auto'; });
+    if (!d.open && d.showModal) d.showModal();
+    // Esc ile kapatınca listeye dön (sayfa durumu ile modal tutarlı kalsın)
+    d.addEventListener('cancel', function (e) {
+        e.preventDefault();
+        d.querySelector('.modal-x').click();
+    });
+})();
+</script>
+<?php endif; ?>
+
 <section class="card">
-        <h2>Kullanıcı Listesi</h2>
+        <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+            <h2 style="margin:0">Kullanıcılar <span class="muted" style="font-size:.9rem;font-weight:500">(<?= e($total) ?>)</span></h2>
+            <a class="btn btn-primary" href="<?= e(url('admin/users.php?new=1')) ?>">+ Yeni kullanıcı</a>
+        </div>
         <form method="get" class="row" style="margin-bottom: 12px;">
             <input class="input" type="text" name="q" value="<?= e($qStr) ?>" placeholder="Kullanıcı adı / ad soyad ara..." style="max-width: 300px;">
             <button type="submit" class="btn">Ara</button>
@@ -214,7 +245,7 @@ render_header('Kullanıcılar', 'users', ['admin.css']);
                     <td><?= $u['last_login_at'] ? e(fmt_datetime($u['last_login_at'])) : '—' ?></td>
                     <td>
                         <div class="row" style="gap: 4px;">
-                            <?php if (!$editUser || $editUser['id'] !== $u['id']): ?>
+                            <?php if (true): /* düzenleme artık modalda */ ?>
                                 <a class="btn btn-sm" href="<?= e(url('admin/users.php?edit=' . $u['id'])) ?>">Düzenle / şifre</a>
                                 <form method="post" class="inline" onsubmit="return confirm('Durum değiştirilsin mi?');">
                                     <?= csrf_field() ?>

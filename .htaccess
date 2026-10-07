@@ -1,7 +1,14 @@
-# Asıl kök public/ klasörüdür. Hosting docroot'u public/'e ayarlanamıyorsa
-# bu dosya diğer her şeyi web'den kapatır.
+# Asıl kök public/ klasörüdür. Adres çubuğunda "public" görünmesin diye her istek
+# SUNUCU İÇİNDE public/'e aktarılır: gencderi.com/secim/  ->  public/index.php
+# Uygulama dışı her şey (kaynak kod, ayarlar, kütüphaneler) web'den kapalıdır.
 Options -Indexes
+DirectoryIndex index.php
 RewriteEngine On
-RewriteRule ^$ public/ [R=302,L]
+
+# 1) Kapalı klasör ve dosyalar (yönlendirmeden ÖNCE)
 RewriteRule ^(src|sql|bin|vendor|storage|tests|\.git)(/|$) - [F,L]
-RewriteRule ^(config(\.example)?\.php|composer\.(json|lock)|[^/]+\.md|\.gitignore)$ - [F,L]
+RewriteRule ^(config(\.example)?\.php|composer\.(json|lock)|[^/]+\.md|\.git\w*|\.htaccess)$ - [F,L]
+
+# 2) Geri kalan her şey public/ içinden servis edilir (adres değişmez)
+RewriteRule ^$ public/index.php [L]
+RewriteRule ^(?!public/)(.*)$ public/$1 [L]

@@ -8,8 +8,9 @@ return [
         'user'    => 'root',
         'pass'    => '',
     ],
-    // Uygulamanın web yolu (sonunda / yok). Docroot doğrudan public/ ise '' yazın.
-    'base_url' => '/secim/public',
+    // Adres çubuğunda görünen yol (sonunda / yok). Kökteki .htaccess istekleri public/'e
+    // aktarır: proje gencderi.com/secim ise '/secim'. Docroot doğrudan public/ ise ''.
+    'base_url' => '/secim',
     'app_name' => 'Katılım Takip',
     'timezone' => 'Europe/Istanbul',
     // Canlıda MUTLAKA false.

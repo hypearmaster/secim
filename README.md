@@ -27,7 +27,7 @@ C:\xampp\php\php.exe bin\setup.php --demo
 `yonetici1`) açar. **Şifreler ekrana bir kez yazılır, not al.** Gerçek kurulumda `--demo` yazma.
 Tekrar çalıştırmak güvenli: var olan veriye dokunmaz.
 
-Aç: http://localhost/secim/public/
+Aç: http://localhost/secim/ (adres çubuğunda hep bu görünür; sayfalar yenilenmeden değişir)
 
 Güncellemek için: `git pull`, sonra yine `C:\xampp\php\php.exe bin\setup.php` (yeni tablo varsa ekler).
 
@@ -71,8 +71,9 @@ Excel indirme, aktif liste değişimi, Bizimkiler işlemleri. GELDİ işaretleri
 
 ## Canlıya alma notları
 
-- Hosting'de web kökü mümkünse `public/` klasörü olmalı. Değilse kökteki `.htaccess`
-  `src/`, `sql/`, `vendor/`, `config.php` vb. dosyaları web'den kapatır.
+- Kökteki `.htaccess` her isteği sunucu içinde `public/`'e aktarır (adreste `public` görünmez) ve
+  `src/`, `sql/`, `vendor/`, `storage/`, `tests/`, `config.php` vb. dosyaları web'den kapatır.
+  `config.php` → `base_url`: proje `alanadi.com/secim` ise `'/secim'`.
 - `config.php` içinde `'debug' => false`, `base_url` sunucu yoluna göre ayarlanmalı.
 - HTTPS şart (oturum çerezi HTTPS'te `Secure` olur).
 - Excel dosyalarını (kişisel veri) depoya koyma.
