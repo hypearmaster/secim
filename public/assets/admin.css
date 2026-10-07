@@ -289,3 +289,9 @@ textarea.input {
 @media (max-width: 639px) {
     .table .col-bar { display: none; }
 }
+
+/* Liste yükleme: sütun eşleme ızgarası, seçenek satırları */
+.map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
+.map-row { margin-bottom: 10px; }
+.radio { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; cursor: pointer; }
+.radio input { width: 20px; height: 20px; margin-top: 2px; flex: none; }

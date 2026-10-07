@@ -188,12 +188,13 @@ function facet_condition(string $column, mixed $value, array &$params): string
 }
 
 /**
- * @param array{q?:string,region?:string,group?:string,status?:string} $f  status: all|came|pending
- * @return array{items:list<array>, total:int}
+ * Kapsam + arama/filtre koşulu. Onay ekranı ve dışa aktarma AYNI kuralları kullanır.
+ * @param array{q?:string,region?:string,group?:string,status?:string,stance?:string} $f  status: all|came|pending
+ * @return array{0:string,1:list<mixed>}
  */
-function search_people(array $user, array $f, int $limit = 50, int $offset = 0): array
+function people_where(array $user, array $f, ?int $eventId = null): array
 {
-    [$where, $params] = people_scope($user);
+    [$where, $params] = people_scope($user, 'p', $eventId);
 
     $words = array_slice(array_filter(explode(' ', search_key((string) ($f['q'] ?? '')))), 0, 6);
     foreach ($words as $w) {
@@ -216,6 +217,15 @@ function search_people(array $user, array $f, int $limit = 50, int $offset = 0):
     } elseif ($status === 'pending') {
         $where .= ' AND p.attended_at IS NULL';
     }
+    return [$where, $params];
+}
+
+/**
+ * @return array{items:list<array>, total:int}
+ */
+function search_people(array $user, array $f, int $limit = 50, int $offset = 0): array
+{
+    [$where, $params] = people_where($user, $f);
 
     $total = (int) q("SELECT COUNT(*) FROM people p WHERE $where", $params)->fetchColumn();
     $limit = max(1, min(200, $limit));
