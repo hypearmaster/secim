@@ -30,7 +30,7 @@ return [
     'stance_options' => [
         'bizimle'  => ['Bizimle', 'success'],
         'kararsiz' => ['Kararsız', 'warning'],
-        'karsi'    => ['Karşı', 'danger'],
+        'karsi'    => ['Rakip', 'danger'],
         'bilinmiyor' => ['Bilinmiyor', 'muted'],
     ],
     // Bizimkiler listesinde eşleşenlere yazılan "Bizimle mi?" anahtarı; onay ekranında mavi zemin.

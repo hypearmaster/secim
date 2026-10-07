@@ -149,7 +149,7 @@ render_header('İşlem Kayıtları', 'log', ['admin.css']);
             </thead>
             <tbody>
             <?php foreach ($logs as $log): ?>
-                <tr<?= $bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '' ?>>
+                <tr<?= $bizimle !== null && $log['person_stance'] === 'karsi' ? ' class="row-rakip"' : ($bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '') ?>>
                     <td><?= e(fmt_datetime($log['created_at'])) ?></td>
                     <td>
                         <?php if ($log['action'] === 'stance'): ?>

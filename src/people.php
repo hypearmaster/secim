@@ -407,7 +407,10 @@ function people_breakdown(array $user, string $column, ?int $eventId = null): ar
 /** @return array<string, array{0:string,1:string}> anahtar => [etiket, renk] */
 function stance_options(): array
 {
-    return (array) config('stance_options', []);
+    $options = (array) config('stance_options', []);
+    // Eski config.php ve kayıt anahtarını koru; tüm ekranlarda yeni etiket/renk kullanılır.
+    if (isset($options['karsi'])) $options['karsi'] = ['Rakip', 'danger'];
+    return $options;
 }
 
 /** @return array{value:?string,label:string,color:string} */

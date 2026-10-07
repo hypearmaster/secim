@@ -127,9 +127,9 @@
 
   function card(p) {
     var bizimle = cfg.supporterStance && p.stance && p.stance.value === cfg.supporterStance;
-    var karsi = p.stance && p.stance.color === 'danger';
+    var rakip = p.stance && p.stance.value === 'karsi';
     var kararsiz = p.stance && p.stance.value === 'kararsiz';
-    var c = el('article', 'p-card' + (p.attended ? ' is-came' : '') + (bizimle ? ' is-bizimle' : '') + (karsi ? ' is-karsi' : '') + (kararsiz ? ' is-kararsiz' : ''));
+    var c = el('article', 'p-card' + (p.attended ? ' is-came' : '') + (bizimle ? ' is-bizimle' : '') + (rakip ? ' is-rakip' : '') + (kararsiz ? ' is-kararsiz' : ''));
     c.setAttribute('data-id', p.id);
 
     var main = el('div', 'p-main');

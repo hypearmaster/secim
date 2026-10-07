@@ -184,7 +184,7 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
             <tbody>
             <?php $bizimle = can('stance', $user) ? (string) config('supporter_stance', 'bizimle') : null; ?>
             <?php foreach ($recentLogs as $log): ?>
-                <tr<?= $bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '' ?>>
+                <tr<?= $bizimle !== null && $log['person_stance'] === 'karsi' ? ' class="row-rakip"' : ($bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '') ?>>
                     <td><?= e(fmt_datetime($log['created_at'])) ?></td>
                     <td>
                         <span class="badge badge-<?= $log['action'] === 'mark' ? 'success' : ($log['action'] === 'unmark' ? 'danger' : 'warning') ?>">

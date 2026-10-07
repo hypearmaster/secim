@@ -59,9 +59,9 @@
 .p-card.is-bizimle { background: var(--bizimle-soft); border-color: var(--bizimle-border); }
 .p-card.is-bizimle .p-tags .badge { background: var(--surface); border-color: var(--bizimle-border); }
 .p-card.is-came.is-bizimle { background: var(--success-soft); border-color: #9fd8b1; box-shadow: inset 5px 0 0 var(--bizimle), var(--shadow); }
-.p-card.is-karsi { background: var(--danger-soft); border-color: #efaaaa; }
-.p-card.is-karsi .p-tags .badge { background: var(--surface); border-color: #efaaaa; }
-.p-card.is-came.is-karsi { box-shadow: inset 5px 0 0 var(--danger), var(--shadow); }
+.p-card.is-rakip { background: var(--danger-soft); border-color: #efaaaa; }
+.p-card.is-rakip .p-tags .badge { background: var(--surface); border-color: #efaaaa; }
+.p-card.is-came.is-rakip { box-shadow: inset 5px 0 0 var(--danger), var(--shadow); }
 .p-card.is-kararsiz { background: var(--warning-soft); border-color: #e8c77e; }
 .p-card.is-kararsiz .p-tags .badge { background: var(--surface); border-color: #e8c77e; }
 .p-card.is-came.is-kararsiz { box-shadow: inset 5px 0 0 var(--warning), var(--shadow); }
