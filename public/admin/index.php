@@ -24,7 +24,9 @@ $regionBreakdown = people_breakdown($user, 'region', $eventId);
 $groupBreakdown = people_breakdown($user, 'group_name', $eventId);
 $stanceBreakdown = [];
 if (can('stance', $user)) {
-    foreach (q('SELECT stance, COUNT(*) AS total, COALESCE(SUM(attended_at IS NOT NULL), 0) AS came
+    // Firma bazında (şubeler tek): onay ekranı ve Bizimkiler ile tutarlı olsun — şube şişmesi olmasın
+    foreach (q('SELECT stance, COUNT(DISTINCT firm_key) AS total,
+                       COUNT(DISTINCT CASE WHEN attended_at IS NOT NULL THEN firm_key END) AS came
                 FROM people WHERE event_id = ? GROUP BY stance ORDER BY stance IS NULL, stance', [$eventId])->fetchAll() as $r) {
         $sv = stance_view($r['stance']);
         $stanceBreakdown[] = ['label' => $sv['label'], 'color' => $sv['color'], 'total' => (int) $r['total'], 'came' => (int) $r['came']];

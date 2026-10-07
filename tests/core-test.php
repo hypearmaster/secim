@@ -216,6 +216,32 @@ check('Bizimle kaldırılınca listeden düşer', supporter_stats($testEvent)['m
 set_stance($yon, $m1, 'bizimle');
 import_supporters($testEvent, ['Liste Kişi', 'Elle Kişi'], $yon['id']);
 check('listede de varsa elle kayıt tekrarlanmaz', (int) q("SELECT COUNT(*) FROM supporters WHERE event_id = ? AND search_key = 'elle kisi'", [$testEvent])->fetchColumn() === 1);
+
+// --- Enes bildirimi: Bizimkiler kargaşası (firma gruplama + onay etiket-liste bağı)
+q('DELETE FROM supporters WHERE event_id = ?', [$testEvent]);
+q('UPDATE people SET stance = NULL WHERE event_id = ?', [$testEvent]);
+$lp = insert_person($testEvent, null, ['full_name' => 'LİSTE SABİT LTD', 'authority' => 'Sabit Kişi', 'region' => 'Merkez', 'ref_no' => 'LS1']);
+$fb1 = insert_person($testEvent, null, ['full_name' => 'ŞUBELİ MARKET AŞ MERKEZ ŞUBESİ', 'authority' => 'Şube Sahibi', 'region' => 'Merkez', 'ref_no' => 'SB1']);
+$fb2 = insert_person($testEvent, null, ['full_name' => 'ŞUBELİ MARKET AŞ KEPEZ ŞUBESİ', 'authority' => 'Şube Sahibi', 'region' => 'Merkez', 'ref_no' => 'SB2']);
+import_supporters($testEvent, ['Sabit Kişi', 'Şube Sahibi'], $yon['id']);
+check('liste eşleşmesi matched + stance bizimle', q("SELECT status FROM supporters WHERE event_id=? AND name='Sabit Kişi'", [$testEvent])->fetchColumn() === 'matched' && $stanceOf($lp) === 'bizimle');
+// Option 2: onaydan etiket geri çekilince YÜKLENEN liste "kontrol bekleyen"e DÜŞMEZ
+set_stance($yon, $lp, 'kararsiz');
+$sr = q("SELECT status, source FROM supporters WHERE event_id=? AND name='Sabit Kişi'", [$testEvent])->fetch();
+check('onaydan geri çekince yüklenen liste sabit kalir (none durumuna düşmez)', $sr && $sr['status'] === 'matched' && $sr['source'] === 'list' && $stanceOf($lp) === 'kararsiz');
+// Bizimkiler görünümü: aynı firmanın şubeleri tek satırda (15 FLO şubesi gibi)
+$ssup = array_values(array_filter(list_supporters($testEvent), fn($s) => $s['name'] === 'Şube Sahibi'))[0] ?? null;
+check('Bizimkiler şubeleri tek firmada toplar', $ssup && count($ssup['firms']) === 1 && $ssup['firms'][0]['branch_count'] === 2, json_encode($ssup['firms'] ?? null));
+// Firma bazlı unlink: tek şube id'siyle tüm şubeler kopar
+$ssupRow = q("SELECT * FROM supporters WHERE event_id=? AND name='Şube Sahibi'", [$testEvent])->fetch();
+unlink_supporter($ssupRow, $fb1);
+check('firma unlink tüm şubeleri koparır', (int) q('SELECT COUNT(*) FROM supporter_people WHERE supporter_id=?', [$ssupRow['id']])->fetchColumn() === 0 && $stanceOf($fb1) === null && $stanceOf($fb2) === null);
+// onaydan Bizimle, kişi zaten listede (none) → ikinci "elle" kayıt AÇILMAZ (mükerrer yok)
+set_stance($yon, $fb1, 'bizimle');
+check('listede olan kişiye onaydan Bizimle ikinci kayıt açmaz', (int) q("SELECT COUNT(*) FROM supporters WHERE event_id=? AND source='manual' AND search_key='sube sahibi'", [$testEvent])->fetchColumn() === 0);
+q('DELETE FROM supporters WHERE event_id = ?', [$testEvent]);
+q('UPDATE people SET stance = NULL WHERE event_id = ?', [$testEvent]);
+
 // Sil / Bağımsız kaydet
 import_supporters($testEvent, ['Liste Kişi', 'Firmasız Biri', 'İSİMSİZ'], $yon['id']);
 $fb = q("SELECT * FROM supporters WHERE event_id = ? AND name = 'Firmasız Biri'", [$testEvent])->fetch();

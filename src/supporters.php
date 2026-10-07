@@ -273,16 +273,20 @@ function link_supporter(array $sup, int $personId): bool
     return true;
 }
 
-/** Bir bağı kaldır; hiç bağ kalmazsa kayıt "bulunamadı"ya döner. */
+/** Bir firmanın bağını kaldır (şubeleri dahil; bağlama da firma bazında). Hiç bağ kalmazsa "bulunamadı". */
 function unlink_supporter(array $sup, int $personId): void
 {
-    q('DELETE FROM supporter_people WHERE supporter_id = ? AND person_id = ?', [$sup['id'], $personId]);
+    $key = q('SELECT firm_key FROM people WHERE id = ? AND event_id = ?', [$personId, $sup['event_id']])->fetchColumn();
+    $pids = $key === false ? [$personId]
+        : array_map('intval', q('SELECT id FROM people WHERE event_id = ? AND firm_key = ?', [$sup['event_id'], $key])->fetchAll(PDO::FETCH_COLUMN));
+    $in = implode(',', array_fill(0, count($pids), '?'));
+    q("DELETE FROM supporter_people WHERE supporter_id = ? AND person_id IN ($in)", [$sup['id'], ...$pids]);
     if (!supporter_person_ids((int) $sup['id'])) {
         // elle açılmış kaydın bağı kalmadı: kayıt anlamsız, sil; listedeki isim "Bulunamadı"ya döner
         q("DELETE FROM supporters WHERE id = ? AND source = 'manual'", [$sup['id']]);
         q("UPDATE supporters SET status = 'none' WHERE id = ? AND source = 'list'", [$sup['id']]);
     }
-    release_supporter_stance([$personId]);
+    release_supporter_stance($pids);
 }
 
 /** Tahmini reddet: tüm adaylar kalkar, "bulunamadı" olur. */
@@ -295,14 +299,49 @@ function reject_supporter(array $sup): void
 }
 
 /**
- * Liste ekranı için kayıtlar + bağlı kişiler (geldi bilgisiyle).
- * @return list<array{id:int,name:string,status:string,people:list<array>}>
+ * Bağlı kişileri FİRMA bazında toplar (onay ekranındaki gibi: aynı firmanın şubeleri tek satır).
+ * "Erdal SAĞLAM → 15 FLO şubesi" 15 satır değil, tek firma "· 15 şube" olur.
+ * @return list<array{firm_key:string,person_id:int,person_ids:list<int>,name:string,full_name:string,
+ *                    has_authority:bool,branch_count:int,region:?string,ref_no:?string,
+ *                    group_name:?string,batch_id:?int,attended_at:?string}>
+ */
+function group_supporter_people(array $rows): array
+{
+    $byFirm = [];
+    foreach ($rows as $p) {
+        $byFirm[$p['firm_key']][] = $p;
+    }
+    $firms = [];
+    foreach ($byFirm as $key => $branches) {
+        $first = $branches[0];
+        $came = array_values(array_filter($branches, fn($b) => $b['attended_at'] !== null));
+        $firms[] = [
+            'firm_key'      => (string) $key,
+            'person_id'     => (int) $first['id'],
+            'person_ids'    => array_map(fn($b) => (int) $b['id'], $branches),
+            'name'          => $first['authority'] ?: $first['full_name'],
+            'full_name'     => $first['full_name'],
+            'has_authority' => (bool) $first['authority'],
+            'branch_count'  => count($branches),
+            'region'        => $first['region'],
+            'ref_no'        => $first['ref_no'],
+            'group_name'    => $first['group_name'],
+            'batch_id'      => $first['batch_id'],
+            'attended_at'   => $came ? $came[count($came) - 1]['attended_at'] : null,
+        ];
+    }
+    return $firms;
+}
+
+/**
+ * Liste ekranı için kayıtlar + bağlı FİRMALAR (geldi bilgisiyle).
+ * @return list<array{id:int,name:string,status:string,firms:list<array>,came:bool}>
  */
 function list_supporters(int $eventId, string $filter = ''): array
 {
     $rows = q('SELECT id, name, status, source FROM supporters WHERE event_id = ? ORDER BY name', [$eventId])->fetchAll();
     $people = [];
-    foreach (q("SELECT sp.supporter_id, p.id, p.full_name, p.authority, p.region, p.ref_no, p.group_name, p.batch_id, p.attended_at, u.full_name AS attended_by_name
+    foreach (q("SELECT sp.supporter_id, p.id, p.firm_key, p.full_name, p.authority, p.region, p.ref_no, p.group_name, p.batch_id, p.attended_at, u.full_name AS attended_by_name
                 FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
                 JOIN people p ON p.id = sp.person_id LEFT JOIN users u ON u.id = p.attended_by
                 WHERE s.event_id = ? ORDER BY p.full_name", [$eventId])->fetchAll() as $p) {
@@ -311,8 +350,8 @@ function list_supporters(int $eventId, string $filter = ''): array
     $out = [];
     foreach ($rows as $r) {
         $r['id'] = (int) $r['id'];
-        $r['people'] = $people[$r['id']] ?? [];
-        $came = $r['status'] === 'matched' && array_filter($r['people'], fn($p) => $p['attended_at'] !== null);
+        $r['firms'] = group_supporter_people($people[$r['id']] ?? []);
+        $came = $r['status'] === 'matched' && array_filter($r['firms'], fn($f) => $f['attended_at'] !== null);
         $r['came'] = (bool) $came;
         $keep = match ($filter) {
             'came'    => $r['came'],
@@ -327,10 +366,13 @@ function list_supporters(int $eventId, string $filter = ''): array
     return $out;
 }
 
-/** @return array{total:int, matched:int, suggested:int, none:int, came:int} */
+/**
+ * @return array{total:int, matched:int, suggested:int, none:int, came:int, matched_firms:int, came_firms:int}
+ * matched/came = İSİM sayısı; matched_firms/came_firms = FİRMA sayısı (şubeler tek) — panelle tutarlı.
+ */
 function supporter_stats(int $eventId): array
 {
-    $s = ['total' => 0, 'matched' => 0, 'suggested' => 0, 'none' => 0, 'came' => 0];
+    $s = ['total' => 0, 'matched' => 0, 'suggested' => 0, 'none' => 0, 'came' => 0, 'matched_firms' => 0, 'came_firms' => 0];
     foreach (q('SELECT status, COUNT(*) n FROM supporters WHERE event_id = ? GROUP BY status', [$eventId])->fetchAll() as $r) {
         $s[$r['status']] = (int) $r['n'];
         $s['total'] += (int) $r['n'];
@@ -338,5 +380,10 @@ function supporter_stats(int $eventId): array
     $s['came'] = (int) q("SELECT COUNT(DISTINCT s.id) FROM supporters s JOIN supporter_people sp ON sp.supporter_id = s.id
                           JOIN people p ON p.id = sp.person_id
                           WHERE s.event_id = ? AND s.status = 'matched' AND p.attended_at IS NOT NULL", [$eventId])->fetchColumn();
+    $s['matched_firms'] = (int) q("SELECT COUNT(DISTINCT p.firm_key) FROM supporters s JOIN supporter_people sp ON sp.supporter_id = s.id
+                                   JOIN people p ON p.id = sp.person_id WHERE s.event_id = ? AND s.status = 'matched'", [$eventId])->fetchColumn();
+    $s['came_firms'] = (int) q("SELECT COUNT(DISTINCT p.firm_key) FROM supporters s JOIN supporter_people sp ON sp.supporter_id = s.id
+                                JOIN people p ON p.id = sp.person_id
+                                WHERE s.event_id = ? AND s.status = 'matched' AND p.attended_at IS NOT NULL", [$eventId])->fetchColumn();
     return $s;
 }

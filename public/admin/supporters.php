@@ -138,8 +138,9 @@ if (isset($_GET['download']) && $event) {
     $r = 2;
     $label = ['matched' => 'Eşleşti', 'suggested' => 'Onay bekliyor', 'none' => 'Bulunamadı'];
     foreach ($rows as $s) {
-        foreach ($s['people'] ?: [null] as $p) {
-            $vals = [$s['name'], $label[$s['status']], $p['authority'] ?? ($p['full_name'] ?? ''), ($p['authority'] ?? null) ? $p['full_name'] : '',
+        foreach ($s['firms'] ?: [null] as $p) {
+            $firma = $p && $p['has_authority'] ? $p['full_name'] . ($p['branch_count'] > 1 ? " ({$p['branch_count']} şube)" : '') : '';
+            $vals = [$s['name'], $label[$s['status']], $p['name'] ?? '', $firma,
                      $p['ref_no'] ?? '', $p['region'] ?? '', $p ? ($p['attended_at'] ? 'Geldi' : 'Gelmedi') : '', fmt_datetime($p['attended_at'] ?? null)];
             foreach ($vals as $i => $v) {
                 xlsx_text($sh, PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1) . $r, $v);
@@ -186,11 +187,12 @@ render_header('Bizimkiler', 'supporters', ['admin.css']);
   <div class="card empty"><h1>Aktif liste yok</h1><p>Önce üye listesini yükleyin.</p></div>
 <?php else: ?>
   <div class="stats">
-    <div class="stat"><div class="stat-label">Bizim liste</div><div class="stat-value"><?= e($stats['total']) ?></div></div>
-    <div class="stat"><div class="stat-label">Eşleşen</div><div class="stat-value"><?= e($stats['matched']) ?></div></div>
-    <div class="stat"><div class="stat-label">Gelen</div><div class="stat-value" style="color:var(--success)"><?= e($stats['came']) ?></div></div>
+    <div class="stat"><div class="stat-label">Bizim liste (isim)</div><div class="stat-value"><?= e($stats['total']) ?></div></div>
+    <div class="stat"><div class="stat-label">Eşleşen firma</div><div class="stat-value"><?= e($stats['matched_firms']) ?></div><div class="stat-label" style="font-weight:400"><?= e($stats['matched']) ?> isim</div></div>
+    <div class="stat"><div class="stat-label">Gelen firma</div><div class="stat-value" style="color:var(--success)"><?= e($stats['came_firms']) ?></div></div>
     <div class="stat"><div class="stat-label">Kontrol bekleyen</div><div class="stat-value" style="color:var(--warning)"><?= e($stats['suggested'] + $stats['none']) ?></div></div>
   </div>
+  <p class="muted" style="margin-top:-4px">“Eşleşen firma” = Panel’deki <strong>Bizimle</strong> firma sayısıyla aynı mantık (şubeler tek sayılır). Bir isim birden çok firmanın yetkilisi olabildiği için isim ve firma sayısı farklı olabilir.</p>
 
   <?php if ($find): ?>
   <section class="card">
@@ -248,17 +250,17 @@ render_header('Bizimkiler', 'supporters', ['admin.css']);
           <div class="row" style="gap:6px">
             <strong><?= e($s['name']) ?></strong>
             <?php if ($s['source'] === 'manual'): ?><span class="badge badge-bizimle">Elle eklendi</span><?php endif; ?>
-            <?php if ($s['people'] && $s['people'][0]['group_name'] === INDEPENDENT_GROUP && $s['people'][0]['batch_id'] === null): ?><span class="badge">Bağımsız</span><?php endif; ?>
+            <?php if ($s['firms'] && $s['firms'][0]['group_name'] === INDEPENDENT_GROUP && $s['firms'][0]['batch_id'] === null): ?><span class="badge">Bağımsız</span><?php endif; ?>
             <?php if ($s['status'] === 'suggested'): ?><span class="badge badge-warning">Tahmin — onay bekliyor</span>
             <?php elseif ($s['status'] === 'none'): ?><span class="badge badge-danger">Bulunamadı</span>
             <?php elseif ($s['came']): ?><span class="badge badge-success">✓ Geldi</span>
             <?php else: ?><span class="badge">Gelmedi</span><?php endif; ?>
           </div>
-          <?php foreach ($s['people'] as $p): ?>
+          <?php foreach ($s['firms'] as $p): ?>
             <div class="sup-person">
-              <span><?= e($p['authority'] ?: $p['full_name']) ?><?php if ($p['authority']): ?> <span class="muted">· <?= e($p['full_name']) ?></span><?php endif; ?></span>
+              <span><?= e($p['name']) ?><?php if ($p['has_authority']): ?> <span class="muted">· <?= e($p['full_name']) ?></span><?php endif; ?><?php if ($p['branch_count'] > 1): ?> <span class="badge"><?= e($p['branch_count']) ?> şube</span><?php endif; ?></span>
               <span class="muted"><?= e($p['region'] ?? '') ?><?= $p['attended_at'] ? ' · geldi ' . e(fmt_time($p['attended_at'])) : '' ?></span>
-              <?php if ($canManage): ?><?= sup_button($s['id'], 'unlink', '✕', 'btn-ghost sup-x', $filter, (int) $p['id'], 'Bu firma bağı kaldırılsın mı?') ?><?php endif; ?>
+              <?php if ($canManage): ?><?= sup_button($s['id'], 'unlink', '✕', 'btn-ghost sup-x', $filter, (int) $p['person_id'], ($p['branch_count'] > 1 ? 'Bu firmanın tüm şubelerinin' : 'Bu firma') . ' bağı kaldırılsın mı?') ?><?php endif; ?>
             </div>
           <?php endforeach; ?>
         </div>
@@ -268,7 +270,7 @@ render_header('Bizimkiler', 'supporters', ['admin.css']);
               <?= sup_button($s['id'], 'confirm', 'Doğru', 'btn-success', $filter) ?>
               <?= sup_button($s['id'], 'reject', 'Hiçbiri', 'btn-ghost', $filter) ?>
             <?php endif; ?>
-            <a class="btn btn-sm btn-ghost" href="<?= e(url('admin/supporters.php?find=' . $s['id'])) ?>"><?= $s['people'] ? '+ Firma' : 'Firma bul' ?></a>
+            <a class="btn btn-sm btn-ghost" href="<?= e(url('admin/supporters.php?find=' . $s['id'])) ?>"><?= $s['firms'] ? '+ Firma' : 'Firma bul' ?></a>
             <?php if ($s['status'] === 'none'): ?>
               <?= sup_button($s['id'], 'independent', 'Bağımsız kaydet', 'btn-ghost', $filter, 0, 'Firmasız kişi olarak eklensin mi? Onay ekranında GELDİ işaretlenebilir.') ?>
             <?php endif; ?>

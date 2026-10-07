@@ -556,13 +556,18 @@ function sync_supporter_for_group(int $eventId, array $ids, ?string $value, ?int
     }
     $in = implode(',', array_fill(0, count($ids), '?'));
     if ($value === $bizimle) {
-        $linked = (int) q("SELECT COUNT(*) FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id AND s.status = 'matched'
-                           WHERE sp.person_id IN ($in)", $ids)->fetchColumn();
+        // Kişi zaten Bizimkiler'de HERHANGİ bir kayda bağlıysa (yüklenen liste: matched/suggested/none
+        // ya da elle) ikinci bir "elle" kayıt AÇMA — aynı kişi iki kez görünmesin.
+        $linked = (int) q("SELECT COUNT(*) FROM supporter_people WHERE person_id IN ($in)", $ids)->fetchColumn();
         if ($linked) {
             return;
         }
         $p = q('SELECT full_name, authority FROM people WHERE id = ?', [$ids[0]])->fetch();
         $name = trim(explode(',', (string) $p['authority'])[0]) ?: $p['full_name'];
+        // Aynı isim Bizimkiler'de zaten varsa (örn. bağı kopmuş 'none' liste kaydı) ikinci kayıt açma
+        if ((int) q('SELECT COUNT(*) FROM supporters WHERE event_id = ? AND search_key = ?', [$eventId, search_key($name)])->fetchColumn()) {
+            return;
+        }
         q("INSERT INTO supporters (event_id, name, search_key, status, source, created_by, created_at)
            VALUES (?, ?, ?, 'matched', 'manual', ?, UTC_TIMESTAMP())", [$eventId, $name, search_key($name), $userId]);
         $sid = (int) db()->lastInsertId();
@@ -571,15 +576,18 @@ function sync_supporter_for_group(int $eventId, array $ids, ?string $value, ?int
         }
         return;
     }
-    $sids = q("SELECT DISTINCT supporter_id FROM supporter_people WHERE person_id IN ($in)", $ids)->fetchAll(PDO::FETCH_COLUMN);
-    if (!$sids) {
+    // "Bizimle"den çıkarıldı: SADECE elle (manual) kayıtları etkiler. Yüklenen liste (source='list')
+    // SABİT kalır — onay ekranındaki etiket değişimi listeyi bozmaz / "kontrol bekleyen"e DÜŞÜRMEZ.
+    $manualSids = q("SELECT DISTINCT sp.supporter_id FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
+                     WHERE sp.person_id IN ($in) AND s.source = 'manual'", $ids)->fetchAll(PDO::FETCH_COLUMN);
+    if (!$manualSids) {
         return;
     }
-    q("DELETE FROM supporter_people WHERE person_id IN ($in)", $ids);
-    foreach ($sids as $sid) {
+    q("DELETE sp FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id
+       WHERE sp.person_id IN ($in) AND s.source = 'manual'", $ids);
+    foreach ($manualSids as $sid) {
         if ((int) q('SELECT COUNT(*) FROM supporter_people WHERE supporter_id = ?', [$sid])->fetchColumn() === 0) {
             q("DELETE FROM supporters WHERE id = ? AND source = 'manual'", [$sid]);
-            q("UPDATE supporters SET status = 'none' WHERE id = ? AND source = 'list'", [$sid]);
         }
     }
 }
@@ -599,9 +607,10 @@ function sync_stance_supporters(int $eventId, ?int $userId): int
         $pdo = db();
         $pdo->beginTransaction();
         try {
+            // Bizimle olup Bizimkiler'de HİÇ kaydı olmayan firmalar (elle etiketlenmiş, listede yok):
+            // bunlara elle kayıt açılır. Listede zaten olan (matched/suggested/none) kişi mükerrer açılmaz.
             $keys = q("SELECT DISTINCT p.firm_key FROM people p WHERE p.event_id = ? AND p.stance = ?
-                       AND NOT EXISTS (SELECT 1 FROM supporter_people sp JOIN supporters s ON s.id = sp.supporter_id AND s.status = 'matched'
-                                       WHERE sp.person_id = p.id)", [$eventId, $bizimle])->fetchAll(PDO::FETCH_COLUMN);
+                       AND NOT EXISTS (SELECT 1 FROM supporter_people sp WHERE sp.person_id = p.id)", [$eventId, $bizimle])->fetchAll(PDO::FETCH_COLUMN);
             foreach ($keys as $key) {
                 $ids = array_map('intval', q('SELECT id FROM people WHERE event_id = ? AND firm_key = ? AND stance = ?',
                     [$eventId, $key, $bizimle])->fetchAll(PDO::FETCH_COLUMN));
