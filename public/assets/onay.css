@@ -62,6 +62,9 @@
 .p-card.is-karsi { background: var(--danger-soft); border-color: #efaaaa; }
 .p-card.is-karsi .p-tags .badge { background: var(--surface); border-color: #efaaaa; }
 .p-card.is-came.is-karsi { box-shadow: inset 5px 0 0 var(--danger), var(--shadow); }
+.p-card.is-kararsiz { background: var(--warning-soft); border-color: #e8c77e; }
+.p-card.is-kararsiz .p-tags .badge { background: var(--surface); border-color: #e8c77e; }
+.p-card.is-came.is-kararsiz { box-shadow: inset 5px 0 0 var(--warning), var(--shadow); }
 .p-main { min-width: 0; }
 /* Aynı firmanın şubeleri */
 .p-firms { font-size: .9rem; color: var(--muted); margin-bottom: 8px; }
