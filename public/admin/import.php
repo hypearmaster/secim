@@ -85,7 +85,7 @@ if (is_post()) {
         $problem = match (true) {
             $mode === 'phones' && (!isset($counts['ref_no']) || !isset($counts['phone']))
                 => 'Telefon güncellemek için bir sütun "Sicil / Referans No", bir sütun "Telefon" olmalı.',
-            !isset($counts['full_name']) && !isset($counts['first_name']) => 'Bir sütunu "Unvan / Ad Soyad" (ya da "Ad") olarak seçin.',
+            $mode !== 'phones' && !isset($counts['full_name']) && !isset($counts['first_name']) => 'Bir sütunu "Unvan / Ad Soyad" (ya da "Ad") olarak seçin.',
             ($counts['full_name'] ?? 0) > 1 => '"Unvan / Ad Soyad" sadece bir sütuna verilebilir.',
             $mode === 'new' && $eventName === null => 'Yeni liste için bir ad yazın.',
             default => null,
@@ -98,7 +98,7 @@ if (is_post()) {
         $built = build_people($sheet['header'], $sheet['rows'], $mapping, $fixedGroup);
         if ($mode === 'phones') {
             // Kişi eklenmez: sadece aktif listedeki aynı sicilli kayıtların telefonu yazılır
-            $r = update_phones($active['id'], $built['people']);
+            $r = update_phones($active['id'], phone_rows($sheet['rows'], $mapping));
             audit('import_phones', $imp['original'], ['liste' => $active['name'], 'güncellenen' => $r['updated'],
                 'zaten aynı' => $r['unchanged'], 'listede yok' => $r['not_found'], 'telefonsuz satır' => $r['no_phone']]);
             drop_import($dir);

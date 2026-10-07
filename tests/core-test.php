@@ -319,7 +319,18 @@ for ($i = 0; $i < REMEMBER_MAX_DEVICES + 3; $i++) {
     remember_issue($onay['id']);
 }
 check('kullanıcı başına en fazla ' . REMEMBER_MAX_DEVICES . ' cihaz', remember_device_count($onay['id']) === REMEMBER_MAX_DEVICES);
+// Codex bulgusu: özellikten önce açılmış (sürümsüz) oturum, cihazlardan çıkarılınca da düşmeli
+$_SESSION = ['uid' => $onay['id']]; // 'av' yok; onay'ın sürümü yukarıda arttı
+check('sürümsüz eski oturum, sürüm artınca düşer', current_user() === null);
+$_SESSION = ['uid' => $yon['id']];  // yönetici hiç çıkarılmadı (sürüm 0)
+check('sürümsüz eski oturum, sürüm 0 iken açık kalır', (current_user()['id'] ?? null) === $yon['id']);
 $_SESSION = [];
+// Codex bulgusu: sadece "Sicil, Gsm" sütunlu dosya da telefon güncellemeli
+$pr = phone_rows([['TP2', '0532 777 66 55', null], [null, '05320000000', null], ['TP1', null, '0242 111 22 33']], ['ref_no', 'phone', 'phone']);
+check('telefon satırları ad sütunu olmadan', $pr === [['ref_no' => 'TP2', 'phone' => '+905327776655'], ['ref_no' => null, 'phone' => '+905320000000'],
+    ['ref_no' => 'TP1', 'phone' => '+902421112233']], json_encode($pr));
+$up2 = update_phones($testEvent, $pr);
+check('adsız dosyayla telefon güncellenir', $up2['updated'] === 2 && $up2['not_found'] === 1, json_encode($up2));
 
 check('denetim kaydı yazılır', (function () { audit('export', '__test__'); return (bool) q("SELECT COUNT(*) FROM audit_log WHERE target = '__test__'")->fetchColumn(); })());
 q("DELETE FROM audit_log WHERE target = '__test__'");

@@ -74,13 +74,14 @@ function current_user(): ?array
     $cachedUid = $uid;
     $user = null;
     $row = q('SELECT id, username, full_name, role, region, is_active, auth_version FROM users WHERE id = ?', [$uid])->fetch();
-    $av = $_SESSION['av'] ?? null;
+    // Bu özellikten önce açılmış oturumda 'av' yok: 0 sayılır (göçte herkes 0). Kullanıcı bir kez
+    // "cihazlardan çıkarıldı" ya da şifresi değiştiyse sürüm > 0 olur ve o eski oturumlar da düşer.
+    $av = $_SESSION['av'] ?? 0;
     if (!$row || !(int) $row['is_active'] || !isset(ROLES[$row['role']])
-        || (is_int($av) && $av !== (int) $row['auth_version'])) { // şifre değişti / cihazlardan çıkarıldı
+        || !is_int($av) || $av !== (int) $row['auth_version']) { // şifre değişti / cihazlardan çıkarıldı
         logout();
         return null;
     }
-    $_SESSION['av'] ??= (int) $row['auth_version']; // bu özellikten önce açılmış oturumlar
     unset($row['auth_version']);
     $row['id'] = (int) $row['id'];
     return $user = $row;
@@ -188,7 +189,7 @@ function logout(): void
 {
     remember_forget_current();
     $_SESSION = [];
-    if (ini_get('session.use_cookies')) {
+    if (ini_get('session.use_cookies') && PHP_SAPI !== 'cli' && !headers_sent()) {
         $p = session_get_cookie_params();
         setcookie(session_name(), '', time() - 3600, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
     }

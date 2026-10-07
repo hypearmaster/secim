@@ -303,6 +303,40 @@ function csv_delimiter(string $path): string
  * @param list<string> $mapping sütun sırasıyla IMPORT_FIELDS anahtarı
  * @return array{people:list<array>, skipped:int, duplicates:int}
  */
+/** Hem Gsm hem Tel varsa cep numarası öncelikli; hepsi geçersizse null. @param list<?string> $normalized */
+function pick_phone(array $normalized): ?string
+{
+    $phones = array_values(array_filter($normalized));
+    usort($phones, fn($a, $b) => is_mobile_phone($b) <=> is_mobile_phone($a));
+    return $phones[0] ?? null;
+}
+
+/**
+ * "Sadece telefonları güncelle" için satırlar: ad sütunu gerekmez (Sicil + Gsm yeter).
+ * @return list<array{ref_no:?string, phone:?string}>
+ */
+function phone_rows(array $rows, array $mapping): array
+{
+    $out = [];
+    foreach ($rows as $row) {
+        $ref = null;
+        $phones = [];
+        foreach ($mapping as $i => $field) {
+            $v = $row[$i] ?? null;
+            if ($v === null) {
+                continue;
+            }
+            if ($field === 'ref_no') {
+                $ref = $v;
+            } elseif ($field === 'phone') {
+                $phones[] = normalize_phone($v);
+            }
+        }
+        $out[] = ['ref_no' => $ref, 'phone' => pick_phone($phones)];
+    }
+    return $out;
+}
+
 function build_people(array $header, array $rows, array $mapping, ?string $fixedGroup): array
 {
     $people = [];
@@ -327,10 +361,7 @@ function build_people(array $header, array $rows, array $mapping, ?string $fixed
                 default      => $d[$field] = $v,
             };
         }
-        // Hem Gsm hem Tel varsa cep numarası öncelikli; ikisi de geçersizse telefonsuz
-        $phones = array_values(array_filter($phones));
-        usort($phones, fn($a, $b) => is_mobile_phone($b) <=> is_mobile_phone($a));
-        $d['phone'] = $phones[0] ?? null;
+        $d['phone'] = pick_phone($phones);
         $d['full_name'] ??= clean_text(trim(($first ?? '') . ' ' . ($last ?? '')));
         if ($d['full_name'] === null) {
             $skipped++;
