@@ -163,15 +163,20 @@ $frm = (int) q('SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id = ?',
 check('scope_stats firma sayar (şube değil)', scope_stats($yon)['total'] === $frm && $frm < $ppl, "firma=$frm kişi=$ppl");
 check('stance_breakdown firma bazlı (ZİNCİR 3 şube = 1 firma)', (stance_breakdown($yon)['bizimle']['total'] ?? 0)
     === (int) q("SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id = ? AND stance = 'bizimle'", [$testEvent])->fetchColumn());
-// Codex: şubeler farklı stance olsa bile firma TEK kez sayılır (temsilci stance), toplam aşmaz
-$mixFirm = 'mix' . bin2hex(random_bytes(3));
-$mx1 = insert_person($testEvent, null, ['full_name' => 'KARMA MARKET AŞ A ŞUBE', 'authority' => 'Karma Yetkili', 'ref_no' => 'KM1', 'region' => 'Merkez']);
-$mx2 = insert_person($testEvent, null, ['full_name' => 'KARMA MARKET AŞ B ŞUBE', 'authority' => 'Karma Yetkili', 'ref_no' => 'KM2', 'region' => 'Merkez']);
+// Codex: şubeler farklı stance olsa bile firma TEK kez, ONAY KARTIYLA aynı stance'te sayılır.
+// ZSUBE düşük id/bizimle, ASUBE yüksek id/kararsız; kart ilk şubeyi (full_name) gösterir = ASUBE/kararsız.
+$before = stance_breakdown($yon);
+$mx1 = insert_person($testEvent, null, ['full_name' => 'KARMA MARKET AS ZSUBE', 'authority' => 'Karma Yetkili', 'ref_no' => 'KM1', 'region' => 'Merkez']);
+$mx2 = insert_person($testEvent, null, ['full_name' => 'KARMA MARKET AS ASUBE', 'authority' => 'Karma Yetkili', 'ref_no' => 'KM2', 'region' => 'Merkez']);
 q("UPDATE people SET stance='bizimle' WHERE id=?", [$mx1]);
-q("UPDATE people SET stance='kararsiz' WHERE id=?", [$mx2]); // aynı firma, farklı stance (Excel'den gelebilir)
-$sbMix = stance_breakdown($yon);
-$sumFirms = array_sum(array_column($sbMix, 'total'));
+q("UPDATE people SET stance='kararsiz' WHERE id=?", [$mx2]);
+$after = stance_breakdown($yon);
+$card = group_view(find_group($yon, $mx1), $yon);
+$sumFirms = array_sum(array_column($after, 'total'));
 check('karma stance firma tek sayılır (toplam = firma sayısı)', $sumFirms === (int) q('SELECT COUNT(DISTINCT firm_key) FROM people WHERE event_id=?', [$testEvent])->fetchColumn(), "toplam=$sumFirms");
+check('kırılım temsilcisi onay kartıyla aynı (full_name,id)', $card['stance']['value'] === 'kararsiz'
+    && (($after['kararsiz']['total'] ?? 0) - ($before['kararsiz']['total'] ?? 0)) === 1
+    && (($after['bizimle']['total'] ?? 0) - ($before['bizimle']['total'] ?? 0)) === 0, json_encode([$card['stance']['value'], $after['kararsiz'] ?? null, $after['bizimle'] ?? null]));
 q('DELETE FROM people WHERE id IN (?, ?)', [$mx1, $mx2]);
 check('Bizimle mi? başka şirkete yazılmaz', q('SELECT stance FROM people WHERE id = ?', [$b4])->fetchColumn() === null);
 check('yetkilisiz kayıtlar birleşmez', firm_key('AHMET KAYA', null, '1') !== firm_key('AHMET KAYA', null, '2'));

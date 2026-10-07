@@ -390,11 +390,19 @@ function scope_stats(array $user): array
 function stance_breakdown(array $user, ?int $eventId = null): array
 {
     [$where, $params] = people_scope($user, 'p', $eventId);
-    $rows = q("SELECT rp.stance AS v, COUNT(*) AS total, COALESCE(SUM(f.all_came), 0) AS came FROM (
-                   SELECT p.firm_key, MIN(p.id) AS rep_id, MIN(p.attended_at IS NOT NULL) AS all_came
+    // Temsilci şube = onay KARTINDAKİ ilk şube (full_name, id sırası; group_view ile aynı) → kart ne
+    // gösteriyorsa kırılım da öyle sayar. came = kapsamdaki tüm şubeleri işaretli (all-came).
+    $rows = q("SELECT rep.stance AS v, COUNT(*) AS total, COALESCE(SUM(firm.all_came), 0) AS came
+               FROM (
+                   SELECT p.firm_key, MIN(p.attended_at IS NOT NULL) AS all_came
                    FROM people p WHERE $where GROUP BY p.firm_key
-               ) f JOIN people rp ON rp.id = f.rep_id
-               GROUP BY rp.stance", $params)->fetchAll();
+               ) firm
+               JOIN (
+                   SELECT p.firm_key, p.stance,
+                          ROW_NUMBER() OVER (PARTITION BY p.firm_key ORDER BY p.full_name, p.id) AS rn
+                   FROM people p WHERE $where
+               ) rep ON rep.firm_key = firm.firm_key AND rep.rn = 1
+               GROUP BY rep.stance", [...$params, ...$params])->fetchAll();
     $out = [];
     foreach ($rows as $r) {
         $out[$r['v'] ?? NONE_VALUE] = ['total' => (int) $r['total'], 'came' => (int) $r['came']];
