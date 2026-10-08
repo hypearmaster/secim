@@ -82,6 +82,8 @@ a { color: var(--primary); }
 .badge-warning { background: var(--warning-soft); color: var(--warning); border-color: transparent; }
 /* Düz (beyaz) rozet: renk vermez — "Ziyaret", "Gelmeyecek" gibi nötr durumlar için */
 .badge-plain { background: #fff; color: var(--text); border-color: #cbd2dc; }
+/* Belirgin amber/turuncu rozet: "Transfer" */
+.badge-amber { background: #fcd34d; color: #451a03; border-color: #f59e0b; }
 
 /* Açılır konum satırı (onay + hediye kartı): satır dokununca kart yerinde açılır, içinde adres + Yol tarifi */
 .place-btn { display: flex; align-items: center; gap: 6px; width: 100%; max-width: 100%; min-height: 36px; padding: 4px 0; margin: 0 0 6px; border: 0; background: transparent; font: inherit; font-size: .9rem; font-weight: 600; color: var(--text); text-align: left; cursor: pointer; }

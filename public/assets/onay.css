@@ -82,7 +82,12 @@
 .p-stance { position: relative; cursor: pointer; min-height: 28px; padding: 4px 10px; }
 .p-stance::after { content: "▾"; margin-left: 2px; opacity: .7; }
 .p-stance-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
-.p-transfer { max-width: 100%; }
+/* Transfer: iki durumlu düğme (rozet görünümlü, açılır menü yok) */
+.p-transfer { max-width: 100%; min-height: 28px; padding: 4px 10px; font-family: inherit; line-height: 1.2; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.p-transfer[aria-pressed="true"] { font-weight: 700; box-shadow: 0 0 0 1px #f59e0b; }
+.p-transfer[aria-busy="true"] { opacity: .65; cursor: progress; }
+.p-transfer:active { transform: scale(.97); }
+.p-transfer:focus-visible { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
 .p-stance:focus-within { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
 
 .p-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -128,3 +133,6 @@
 @media (prefers-reduced-motion: reduce) {
   .toast, .onay-count .progress > span, .filters summary::before { transition: none; }
 }
+
+/* Kart zemini rengi (geldi/bizimle/rakip) rozet zeminini beyaza çeviriyor; amber Transfer düğmesi her zeminde amber kalsın */
+.p-card .p-tags button.p-transfer.badge-amber { background: #fcd34d; border-color: #f59e0b; color: #451a03; }

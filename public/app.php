@@ -19,10 +19,8 @@ foreach (stance_options() as $value => [$label, $color]) {
     $stances[] = ['value' => $value, 'label' => $label, 'color' => $color, 'total' => $stanceCounts[$value]['total'] ?? 0];
 }
 
-$transfers = [];
-foreach (transfer_options() as $value => [$label, $color]) {
-    $transfers[] = ['value' => $value, 'label' => $label, 'color' => $color];
-}
+// Transfer iki durumlu düğme: iki durumun etiketi/rengi (iyimser güncelleme için)
+$transferStates = ['off' => transfer_view(null), 'on' => transfer_view('transfer')];
 
 $config = [
     'api'       => ['search' => url('api/search.php'), 'mark' => url('api/mark.php'), 'stance' => url('api/stance.php'),
@@ -31,7 +29,7 @@ $config = [
     'eventId'   => $event['id'] ?? null,
     'canStance' => $canStance,
     'canTransfer' => $canTransfer,
-    'transfers' => $canTransfer ? $transfers : [],
+    'transferStates' => $canTransfer ? $transferStates : null,
     'supporterStance' => $canStance ? (string) config('supporter_stance', 'bizimle') : null, // mavi zemin
     'stances'   => $stances,
     'stats'     => scope_stats($user),

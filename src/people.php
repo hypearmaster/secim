@@ -523,56 +523,50 @@ function stance_from_text(mixed $text): ?string
 
 /* ---------- Transfer ---------- */
 
-/** Config'de transfer_options yoksa (eski config.php) kullanılan varsayılanlar. */
+/** Transfer iki durumludur: 'kendisi' (varsayılan, DB'de NULL) ve 'transfer'. Config sadece etiket/renk değiştirebilir. */
 const TRANSFER_DEFAULTS = [
-    'aliyoruz'  => ['Biz alıyoruz', 'success'],
-    'almiyoruz' => ['Almıyoruz', 'muted'],
-    'rakip'     => ['Rakip alıyor', 'danger'],
-    'belirsiz'  => ['Belirsiz', 'warning'],
+    'kendisi'  => ['Kendisi gelecek', 'plain'],
+    'transfer' => ['Transfer', 'amber'],
 ];
 
-/** @return array<string, array{0:string,1:string}> anahtar => [etiket, renk]; 'belirsiz' (= NULL) hep vardır */
+/** @return array{kendisi:array{0:string,1:string}, transfer:array{0:string,1:string}} anahtar => [etiket, renk] (eski config'teki başka anahtarlar yok sayılır) */
 function transfer_options(): array
 {
-    $options = (array) config('transfer_options', TRANSFER_DEFAULTS);
-    if (!$options) {
-        $options = TRANSFER_DEFAULTS;
+    $cfg = (array) config('transfer_options', []);
+    $out = [];
+    foreach (TRANSFER_DEFAULTS as $key => $default) {
+        $out[$key] = isset($cfg[$key]) && is_array($cfg[$key]) && count($cfg[$key]) >= 2 ? [(string) $cfg[$key][0], (string) $cfg[$key][1]] : $default;
     }
-    $options['belirsiz'] ??= TRANSFER_DEFAULTS['belirsiz'];
-    return $options;
-}
-
-/** @return array{value:?string,label:string,color:string} NULL = Belirsiz */
-function transfer_view(?string $value): array
-{
-    $opts = transfer_options();
-    if ($value !== null && $value !== 'belirsiz' && isset($opts[$value])) {
-        return ['value' => $value, 'label' => $opts[$value][0], 'color' => $opts[$value][1]];
-    }
-    return ['value' => null, 'label' => $opts['belirsiz'][0], 'color' => $opts['belirsiz'][1]];
+    return $out;
 }
 
 /**
- * Serbest metni ("Biz alıyoruz", "RAKİP ALIYOR", "aliyoruz") seçenek anahtarına çevirir.
- * 'belirsiz' ve tanınmayan her şey null (= Belirsiz) olur.
+ * @return array{value:?string,label:string,color:string} value: 'transfer' ya da null (= Kendisi gelecek).
+ * DB'de tanınmayan ama dolu bir değer (eski 'aliyoruz'/'rakip' vb.) Transfer sayılır; 'belirsiz'/'kendisi'/boş = Kendisi.
+ */
+function transfer_view(?string $value): array
+{
+    $opts = transfer_options();
+    $isTransfer = $value !== null && trim($value) !== '' && !in_array($value, ['kendisi', 'belirsiz'], true);
+    $key = $isTransfer ? 'transfer' : 'kendisi';
+    return ['value' => $isTransfer ? 'transfer' : null, 'label' => $opts[$key][0], 'color' => $opts[$key][1]];
+}
+
+/**
+ * Excel'deki serbest metni transfer değerine çevirir: "transfer", "evet", "var", "x", "1" -> 'transfer';
+ * boş, "kendisi", "hayır", "yok" ve tanınmayan her şey -> null. (Eski dışa aktarmalardaki "Biz alıyoruz",
+ * "Almıyoruz", "Rakip alıyor" etiketleri de transfer sayılır.)
  */
 function transfer_from_text(mixed $text): ?string
 {
     $k = search_key(clean_text($text, 64));
-    if ($k === '') {
-        return null;
-    }
-    foreach (transfer_options() as $key => [$label]) {
-        if ($key !== 'belirsiz' && ($k === search_key($key) || $k === search_key($label))) {
-            return $key;
-        }
-    }
-    return null;
+    return in_array($k, ['transfer', 'evet', 'var', 'x', '1', 'e', 'true', 'biz aliyoruz', 'aliyoruz', 'almiyoruz', 'rakip aliyor', 'rakip'], true)
+        ? 'transfer' : null;
 }
 
 /**
  * Kişinin firma grubunun (kapsamdaki tüm kayıtlarının) transfer değerini değiştirir.
- * @param ?string $value seçenek anahtarı; null / 'belirsiz' = temizle
+ * @param ?string $value 'transfer' ya da null / 'kendisi' (= Kendisi gelecek, DB'de NULL)
  * @return array{ok:bool, status:int, error?:string, person?:array}
  */
 function set_transfer(array $user, int $personId, ?string $value): array
@@ -580,10 +574,10 @@ function set_transfer(array $user, int $personId, ?string $value): array
     if (!can('transfer', $user)) {
         return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
     }
-    if ($value === 'belirsiz') {
+    if ($value === 'kendisi' || $value === '') {
         $value = null;
     }
-    if ($value !== null && !isset(transfer_options()[$value])) {
+    if ($value !== null && $value !== 'transfer') {
         return ['ok' => false, 'status' => 422, 'error' => 'Geçersiz seçenek.'];
     }
     $event = active_event();

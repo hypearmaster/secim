@@ -104,7 +104,7 @@
     });
     main.appendChild(pl.btn);
     main.appendChild(pl.panel);
-    if (g.transfer) main.appendChild(el('span', 'badge g-transfer badge-' + g.transfer.color, 'Transfer: ' + g.transfer.label));
+    if (g.transfer) main.appendChild(el('span', 'badge g-transfer badge-' + g.transfer.color, g.transfer.label));
     var regionLabel = el('label', 'g-region', 'Bölge');
     var regionSelect = el('select', 'input');
     regionSelect.setAttribute('aria-label', g.name + ' bölgesi');

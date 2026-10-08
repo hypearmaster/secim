@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/../../src/bootstrap.php';
 
-// POST person_id, value=<transfer_options anahtarı> ya da boş / "belirsiz" (temizle), _csrf / X-CSRF-Token
+// POST person_id, value=transfer ya da boş / "kendisi" (Kendisi gelecek), _csrf / X-CSRF-Token
 $user = require_perm('transfer');
 if (!is_post()) {
     json_response(['ok' => false, 'error' => 'Sadece POST.'], 405);

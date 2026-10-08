@@ -383,37 +383,39 @@ check('adsız dosyayla telefon güncellenir', $up2['updated'] === 2 && $up2['not
 
 // Mahalle + Transfer + "mevcut kayıtları güncelle" (telefon / mahalle / transfer)
 $hp1 = insert_person($testEvent, null, ['full_name' => 'MAHALLE TİCARET', 'authority' => 'Mah Kişi', 'region' => 'Merkez', 'ref_no' => 'MH1',
-    'group_name' => 'Grup 10', 'neighborhood' => 'Beldibi Mah.', 'transfer' => 'Rakip alıyor']);
+    'group_name' => 'Grup 10', 'neighborhood' => 'Beldibi Mah.', 'transfer' => 'evet']);
 $hs = search_people($onay, ['q' => 'beldibi'])['items'];
 check('mahalle aramada bulunur (search_key)', count($hs) === 1 && $hs[0]['id'] === $hp1 && $hs[0]['neighborhood'] === 'Beldibi Mah.' && $hs[0]['neighborhoods'] === ['Beldibi Mah.'], json_encode($hs));
 check('grup verisi kartta/DB\'de durur (sadece gösterimden kalkar)', $hs[0]['group_name'] === 'Grup 10');
-check('import metninden transfer anahtara çevrilir', q('SELECT transfer FROM people WHERE id = ?', [$hp1])->fetchColumn() === 'rakip');
+check('import metninden transfer anahtara çevrilir', q('SELECT transfer FROM people WHERE id = ?', [$hp1])->fetchColumn() === 'transfer');
 check('onaycı transfer görmez (stance ile aynı hassasiyet)', $hs[0]['transfer'] === null);
 $hsy = search_people($yon, ['q' => 'beldibi'])['items'][0];
-check('yönetici transfer görür', $hsy['transfer']['value'] === 'rakip' && $hsy['transfer']['label'] === 'Rakip alıyor' && $hsy['transfer']['color'] === 'danger');
+check('yönetici transfer görür', $hsy['transfer']['value'] === 'transfer' && $hsy['transfer']['label'] === 'Transfer' && $hsy['transfer']['color'] === 'amber');
 
 // set_transfer: yetki, geçersiz değer, grup geneli, işlem kaydı
 $tb1 = insert_person($testEvent, null, ['full_name' => 'TRANSFER SUBE UC AGORA', 'authority' => 'Transfer Sahibi', 'region' => 'Merkez', 'ref_no' => 'TR1']);
 $tb2 = insert_person($testEvent, null, ['full_name' => 'TRANSFER SUBE UC KEPEZ', 'authority' => 'Transfer Sahibi', 'region' => 'Merkez', 'ref_no' => 'TR2']);
-check('onaycı transfer değiştiremez', set_transfer($onay, $tb1, 'aliyoruz')['status'] === 403);
+check('onaycı transfer değiştiremez', set_transfer($onay, $tb1, 'transfer')['status'] === 403);
 check('geçersiz transfer değeri 422', set_transfer($yon, $tb1, 'olmayan')['status'] === 422);
-$tr = set_transfer($yon, $tb1, 'aliyoruz');
-check('yönetici transfer değiştirir', $tr['ok'] && $tr['person']['transfer']['value'] === 'aliyoruz' && $tr['person']['count'] === 2, json_encode($tr));
-check('transfer firma grubunun tüm şubelerine yazılır', (int) q("SELECT COUNT(*) FROM people WHERE id IN (?, ?) AND transfer = 'aliyoruz'", [$tb1, $tb2])->fetchColumn() === 2);
-check('transfer işlem kaydına yazılır (action=transfer)', (int) q("SELECT COUNT(*) FROM attendance_log WHERE event_id = ? AND action = 'transfer' AND note = 'aliyoruz'", [$testEvent])->fetchColumn() === 2);
-set_transfer($yon, $tb1, 'aliyoruz');
+$tr = set_transfer($yon, $tb1, 'transfer');
+check('yönetici transfer değiştirir', $tr['ok'] && $tr['person']['transfer']['value'] === 'transfer' && $tr['person']['count'] === 2, json_encode($tr));
+check('transfer firma grubunun tüm şubelerine yazılır', (int) q("SELECT COUNT(*) FROM people WHERE id IN (?, ?) AND transfer = 'transfer'", [$tb1, $tb2])->fetchColumn() === 2);
+check('transfer işlem kaydına yazılır (action=transfer)', (int) q("SELECT COUNT(*) FROM attendance_log WHERE event_id = ? AND action = 'transfer' AND note = 'transfer'", [$testEvent])->fetchColumn() === 2);
+set_transfer($yon, $tb1, 'transfer');
 check('aynı değer tekrar yazılırsa kayıt şişmez', (int) q("SELECT COUNT(*) FROM attendance_log WHERE event_id = ? AND action = 'transfer'", [$testEvent])->fetchColumn() === 2);
-$trc = set_transfer($yon, $tb2, 'belirsiz');
-check('"belirsiz" seçimi NULL yapar (Belirsiz görünür)', $trc['ok'] && $trc['person']['transfer']['value'] === null && $trc['person']['transfer']['label'] === 'Belirsiz'
+$trc = set_transfer($yon, $tb2, null);
+check('geri alınca NULL olur (Kendisi gelecek görünür)', $trc['ok'] && $trc['person']['transfer']['value'] === null && $trc['person']['transfer']['label'] === 'Kendisi gelecek'
+    && q("SELECT note FROM attendance_log WHERE person_id = ? AND action = 'transfer' ORDER BY id DESC LIMIT 1", [$tb2])->fetchColumn() === null
+    && set_transfer($yon, $tb2, 'kendisi')['ok'] && set_transfer($yon, $tb2, '')['ok']
     && q('SELECT transfer FROM people WHERE id = ?', [$tb1])->fetchColumn() === null);
-check('olmayan kişi 404', set_transfer($yon, 999999999, 'aliyoruz')['status'] === 404);
+check('olmayan kişi 404', set_transfer($yon, 999999999, 'transfer')['status'] === 404);
 check('transfer geldi işaretini ve stance\'ı bozmaz', (function () use ($yon, $onay, $tb1) {
     mark_person($onay, $tb1);
     q("UPDATE people SET stance = 'karsi' WHERE id = ?", [$tb1]);
-    set_transfer($yon, $tb1, 'rakip');
+    set_transfer($yon, $tb1, 'transfer');
     $r = q('SELECT attended_at, stance, transfer FROM people WHERE id = ?', [$tb1])->fetch();
     unmark_person($yon, $tb1);
-    return $r['attended_at'] !== null && $r['stance'] === 'karsi' && $r['transfer'] === 'rakip';
+    return $r['attended_at'] !== null && $r['stance'] === 'karsi' && $r['transfer'] === 'transfer';
 })());
 
 // Mevcut kayıtları güncelle: sicil ya da tam ad ile; işaret/stance'a dokunmaz; tekrar yüklemek güvenli
@@ -425,7 +427,7 @@ mark_person($onay, $e1);
 q("UPDATE people SET stance = 'bizimle' WHERE id = ?", [$e1]);
 $before = q('SELECT attended_at, attended_by, stance, phone, region, group_name, full_name, authority, ref_no FROM people WHERE id = ?', [$e1])->fetch();
 $rows = [
-    ['ref_no' => 'EN1', 'neighborhood' => 'Kiriş Mah.', 'transfer' => 'aliyoruz'],
+    ['ref_no' => 'EN1', 'neighborhood' => 'Kiriş Mah.', 'transfer' => 'x'],
     ['ref_no' => '11111111', 'name' => 'ISIM ESLESIR LTD', 'neighborhood' => 'Aksu Mah.'],  // yer tutucu sicil: ada göre eşleşir
     ['name' => 'AYNI ADLI LTD', 'neighborhood' => 'Yanlış Mah.'],                              // aynı adlı iki firma: atlanır
     ['ref_no' => 'YOKSICIL', 'neighborhood' => 'Hiç Mah.'],
@@ -440,7 +442,7 @@ check('güncelle: tam adres yazıldı', q('SELECT address FROM people WHERE id =
 $after = q('SELECT attended_at, attended_by, stance, phone, region, group_name, full_name, authority, ref_no FROM people WHERE id = ?', [$e1])->fetch();
 check('güncelle: geldi işareti, stance, telefon, bölge, grup vb. DEĞİŞMEZ', $before === $after && $after['attended_at'] !== null && $after['stance'] === 'bizimle', json_encode([$before, $after]));
 $n1 = q('SELECT neighborhood, transfer, search_key FROM people WHERE id = ?', [$e1])->fetch();
-check('güncelle: mahalle + transfer yazıldı, search_key yenilendi', $n1['neighborhood'] === 'Kiriş Mah.' && $n1['transfer'] === 'aliyoruz' && str_contains($n1['search_key'], 'kiris'), json_encode($n1));
+check('güncelle: mahalle + transfer yazıldı, search_key yenilendi', $n1['neighborhood'] === 'Kiriş Mah.' && $n1['transfer'] === 'transfer' && str_contains($n1['search_key'], 'kiris'), json_encode($n1));
 check('güncelle: aramada yeni mahalleyle bulunur', in_array($e1, array_column(search_people($yon, ['q' => 'kiris'])['items'], 'id'), true));
 check('güncelle: ada göre eşleşme (yer tutucu sicil)', q('SELECT neighborhood FROM people WHERE id = ?', [$e2])->fetchColumn() === 'Aksu Mah.');
 check('güncelle: aynı adlı birden çok firma güncellenmez',
@@ -452,7 +454,7 @@ check('güncelle: kayıt çoğalmaz', $cnt === (int) q('SELECT COUNT(*) FROM peo
 update_people_fields($testEvent, [['ref_no' => 'EN1', 'neighborhood' => null, 'transfer' => 'tanınmayan']]);
 $n2 = q('SELECT neighborhood, transfer FROM people WHERE id = ?', [$e1])->fetch();
 update_people_fields($testEvent, [['ref_no' => 'EN1', 'address' => '   ']]);
-check('güncelle: boş/tanınmayan değer var olanı silmez', $n2['neighborhood'] === 'Kiriş Mah.' && $n2['transfer'] === 'aliyoruz'
+check('güncelle: boş/tanınmayan değer var olanı silmez', $n2['neighborhood'] === 'Kiriş Mah.' && $n2['transfer'] === 'transfer'
     && q('SELECT address FROM people WHERE id = ?', [$e1])->fetchColumn() === 'BELDİBİ MAH. ATATÜRK CAD. NO:5 KEMER/ANTALYA');
 // Adres kartta: group_view.places (şubeler farklı adreslerde ise her biri ayrı)
 $ad1 = insert_person($testEvent, null, ['full_name' => 'ADRESLI SUBE UC AGORA', 'authority' => 'Adres Sahibi', 'region' => 'Merkez', 'ref_no' => 'AD1', 'address' => 'Agora AVM Kat 2 Kemer']);
@@ -528,13 +530,13 @@ import_gifts($testEvent, ['MAHALLE TİCARET', 'Mah Kişi', 'Kimse Yok', 'Dolgu D
 $gi = array_column(search_gifts([], 50, 0, $yon)['items'], null, 'name');
 check('hediye kartı: eşleşen kişiden mahalle', ($gi['MAHALLE TİCARET']['neighborhood'] ?? null) === 'Beldibi Mah.' && ($gi['Mah Kişi']['neighborhood'] ?? null) === 'Beldibi Mah.', json_encode($gi, JSON_UNESCAPED_UNICODE));
 check('hediye kartı: eşleşmeyen isimde mahalle/transfer boş', $gi['Kimse Yok']['neighborhood'] === null && $gi['Kimse Yok']['transfer'] === null);
-check('hediye kartı: yönetici transfer çipini görür', ($gi['MAHALLE TİCARET']['transfer']['value'] ?? null) === 'rakip');
+check('hediye kartı: yönetici transfer çipini görür', ($gi['MAHALLE TİCARET']['transfer']['value'] ?? null) === 'transfer');
 $giOnay = array_column(search_gifts([], 50, 0, $onay)['items'], null, 'name');
 check('hediye kartı: onaycıya transfer gönderilmez', $giOnay['MAHALLE TİCARET']['transfer'] === null && $giOnay['MAHALLE TİCARET']['neighborhood'] === 'Beldibi Mah.');
 $g1 = search_gifts(['q' => 'mahalle'], 50, 0, $yon)['items'];
-check('hediye kartı: tek sonuçta hedefli sorgu aynı sonucu verir', count($g1) === 1 && $g1[0]['neighborhood'] === 'Beldibi Mah.' && $g1[0]['transfer']['value'] === 'rakip', json_encode($g1, JSON_UNESCAPED_UNICODE));
+check('hediye kartı: tek sonuçta hedefli sorgu aynı sonucu verir', count($g1) === 1 && $g1[0]['neighborhood'] === 'Beldibi Mah.' && $g1[0]['transfer']['value'] === 'transfer', json_encode($g1, JSON_UNESCAPED_UNICODE));
 $gmk = mark_gift($yon, (int) $gi['MAHALLE TİCARET']['id'], true);
-check('hediye işaretleme yanıtı da mahalle/transfer taşır (kart yerine konunca kaybolmaz)', $gmk['ok'] && $gmk['gift']['neighborhood'] === 'Beldibi Mah.' && $gmk['gift']['transfer']['value'] === 'rakip', json_encode($gmk, JSON_UNESCAPED_UNICODE));
+check('hediye işaretleme yanıtı da mahalle/transfer taşır (kart yerine konunca kaybolmaz)', $gmk['ok'] && $gmk['gift']['neighborhood'] === 'Beldibi Mah.' && $gmk['gift']['transfer']['value'] === 'transfer', json_encode($gmk, JSON_UNESCAPED_UNICODE));
 clear_gifts($testEvent);
 q('DELETE FROM import_batches WHERE event_id = ?', [$testEvent]); // import_gifts'in açtığı batch satırları (shutdown events siler, FK için)
 

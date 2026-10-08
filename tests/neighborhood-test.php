@@ -64,25 +64,31 @@ check('başka sütun "address"e eşlenemez', !allowed_field('Unvan', 'address') 
 check('Mahalle sütunu mahalleye, İlçe bölgeye eşlenir', guess_field('Mahalle') === 'neighborhood' && guess_field('İlçe') === 'region');
 check('Transfer sütunu tanınır', guess_field('Transfer') === 'transfer');
 
-$bp = build_people(['Unvan', 'Adres', 'Transfer'], [['A FİRMA', $addr, 'Rakip alıyor'], ['B FİRMA', 'ATATÜRK BLV. NO:1 KEMER', 'bilmem'], ['C FİRMA', null, null]],
+$bp = build_people(['Unvan', 'Adres', 'Transfer'], [['A FİRMA', $addr, 'Evet'], ['B FİRMA', 'ATATÜRK BLV. NO:1 KEMER', 'bilmem'], ['C FİRMA', null, null]],
     ['full_name', 'address', 'transfer'], null)['people'];
 check('build_people: mahalle türetilir', array_map(fn($p) => $p['neighborhood'] ?? null, $bp) === ['Beldibi Mah.', null, null], json_encode(array_column($bp, 'neighborhood'), JSON_UNESCAPED_UNICODE));
 check('build_people: tam adres address alanında, extra\'ya sızmaz', ($bp[0]['address'] ?? null) === $addr && empty($bp[0]['extra']) && ($bp[2]['address'] ?? null) === null, json_encode($bp, JSON_UNESCAPED_UNICODE));
 check('kişisel sütunlar hâlâ kilitli (mail/TC/ortak/IBAN)', !allowed_field('Mail', 'extra') && !allowed_field('TC Kimlik No', 'extra')
     && !allowed_field('Ortaklar', 'extra') && !allowed_field('IBAN', 'extra') && guess_field('Mail') === 'ignore');
-check('build_people: transfer metni -> anahtar, tanınmayan -> null', array_map(fn($p) => $p['transfer'] ?? null, $bp) === ['rakip', null, null], json_encode(array_column($bp, 'transfer')));
+check('build_people: transfer metni -> anahtar, tanınmayan -> null', array_map(fn($p) => $p['transfer'] ?? null, $bp) === ['transfer', null, null], json_encode(array_column($bp, 'transfer')));
 
-$er = enrich_rows([['101', 'BELDİBİ MAH. X CAD.', 'Biz alıyoruz', '0532 111 22 33'], [null, null, 'saçma', null]], ['ref_no', 'address', 'transfer', 'phone']);
-check('enrich_rows: sicil + mahalle + transfer + telefon', $er[0] === ['ref_no' => '101', 'name' => null, 'phone' => '+905321112233', 'neighborhood' => 'Beldibi Mah.', 'address' => 'BELDİBİ MAH. X CAD.', 'transfer' => 'aliyoruz'], json_encode($er[0], JSON_UNESCAPED_UNICODE));
+$er = enrich_rows([['101', 'BELDİBİ MAH. X CAD.', 'transfer', '0532 111 22 33'], [null, null, 'saçma', null]], ['ref_no', 'address', 'transfer', 'phone']);
+check('enrich_rows: sicil + mahalle + transfer + telefon', $er[0] === ['ref_no' => '101', 'name' => null, 'phone' => '+905321112233', 'neighborhood' => 'Beldibi Mah.', 'address' => 'BELDİBİ MAH. X CAD.', 'transfer' => 'transfer'], json_encode($er[0], JSON_UNESCAPED_UNICODE));
 check('enrich_rows: boş/tanınmayan değer null', $er[1]['neighborhood'] === null && $er[1]['transfer'] === null && $er[1]['phone'] === null);
 check('enrich_rows: boş adres null', $er[1]['address'] === null);
 
 // ---- Transfer
-check('transfer_from_text: anahtar / etiket / büyük harf', transfer_from_text('aliyoruz') === 'aliyoruz' && transfer_from_text('RAKİP ALIYOR') === 'rakip'
-    && transfer_from_text('Almıyoruz') === 'almiyoruz' && transfer_from_text('Biz alıyoruz') === 'aliyoruz');
-check('transfer_from_text: belirsiz / boş / tanınmayan -> null', transfer_from_text('Belirsiz') === null && transfer_from_text('') === null && transfer_from_text('xyz') === null);
-check('transfer_view: null = Belirsiz', transfer_view(null)['label'] === 'Belirsiz' && transfer_view('rakip')['color'] === 'danger' && transfer_view('yok')['value'] === null);
-check('transfer seçenekleri belirsiz dahil', array_keys(transfer_options()) === ['aliyoruz', 'almiyoruz', 'rakip', 'belirsiz'], implode(',', array_keys(transfer_options())));
+foreach (['transfer', 'Transfer', 'EVET', 'var', 'x', 'X', '1', ' evet ', 'Rakip alıyor'] as $yes) {
+    check("transfer_from_text: \"$yes\" -> transfer", transfer_from_text($yes) === 'transfer');
+}
+foreach (['', '  ', 'kendisi', 'Kendisi gelecek', 'hayır', 'yok', '0', 'belirsiz', 'xyz', null] as $no) {
+    check('transfer_from_text: ' . var_export($no, true) . ' -> null', transfer_from_text($no) === null);
+}
+check('transfer_view: null = Kendisi gelecek (beyaz)', transfer_view(null) === ['value' => null, 'label' => 'Kendisi gelecek', 'color' => 'plain']);
+check('transfer_view: transfer = Transfer (amber)', transfer_view('transfer') === ['value' => 'transfer', 'label' => 'Transfer', 'color' => 'amber']);
+check('transfer_view: eski/tanınmayan dolu değer Transfer sayılır', transfer_view('rakip')['value'] === 'transfer' && transfer_view('aliyoruz')['label'] === 'Transfer' && transfer_view('baska')['value'] === 'transfer');
+check('transfer_view: kendisi/belirsiz/boş = Kendisi gelecek', transfer_view('kendisi')['value'] === null && transfer_view('belirsiz')['value'] === null && transfer_view('')['value'] === null);
+check('transfer seçenekleri iki durumlu', array_keys(transfer_options()) === ['kendisi', 'transfer'], implode(',', array_keys(transfer_options())));
 
 echo $fail ? "\n$fail test BAŞARISIZ\n" : "\nTüm testler geçti\n";
 exit($fail ? 1 : 0);

@@ -35,13 +35,11 @@ return [
         'ziyaret'    => ['Ziyaret', 'plain'],       // plain = beyaz rozet, kart zemini renklenmez
         'gelmeyecek' => ['Gelmeyecek', 'plain'],
     ],
-    // "Transfer" çipi (kişi başka kuruma/partiye geçiyor mu?): anahtar => [etiket, renk(success|warning|danger|muted)].
-    // 'belirsiz' = boş (NULL); config'de yoksa kendiliğinden eklenir. Anahtarlar DB'ye yazılır.
+    // "Transfer" düğmesi iki durumlu: 'kendisi' (varsayılan, DB'de NULL) ve 'transfer'. Sadece etiket/renk değişir.
+    // Renk: plain (beyaz) | amber (turuncu) | success | warning | danger | muted.
     'transfer_options' => [
-        'aliyoruz'  => ['Biz alıyoruz', 'success'],
-        'almiyoruz' => ['Almıyoruz', 'muted'],
-        'rakip'     => ['Rakip alıyor', 'danger'],
-        'belirsiz'  => ['Belirsiz', 'warning'],
+        'kendisi'  => ['Kendisi gelecek', 'plain'],
+        'transfer' => ['Transfer', 'amber'],
     ],
     // Bizimkiler listesinde eşleşenlere yazılan "Bizimle mi?" anahtarı; onay ekranında mavi zemin.
     'supporter_stance' => 'bizimle',

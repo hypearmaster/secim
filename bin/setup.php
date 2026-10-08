@@ -113,6 +113,16 @@ if (!$has('people', 'transfer')) {
     echo "  kişiler: transfer sütunu eklendi
 ";
 }
+// Transfer artık iki durumlu: eski 'aliyoruz'/'almiyoruz'/'rakip' -> 'transfer', 'belirsiz' -> NULL (idempotent)
+$conv = db()->exec("UPDATE people SET transfer = 'transfer' WHERE transfer IN ('aliyoruz','almiyoruz','rakip')")
+    + db()->exec("UPDATE people SET transfer = NULL WHERE transfer IN ('belirsiz','kendisi','')");
+if (strpos((string) q("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_log' AND COLUMN_NAME = 'action'")->fetchColumn(), "'transfer'") !== false) {
+    q("UPDATE attendance_log SET note = 'transfer' WHERE action = 'transfer' AND note IN ('aliyoruz','almiyoruz','rakip')");
+    q("UPDATE attendance_log SET note = NULL WHERE action = 'transfer' AND note IN ('belirsiz','kendisi','')");
+}
+if ($conv) {
+    echo "  kişiler: transfer değerleri iki durumluya çevrildi ($conv kayıt)\n";
+}
 // attendance_log.action ENUM'una 'transfer' (idempotent: zaten varsa dokunmaz)
 if (strpos((string) q("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_log' AND COLUMN_NAME = 'action'")->fetchColumn(), "'transfer'") === false) {
     db()->exec("ALTER TABLE attendance_log MODIFY COLUMN action ENUM('mark','unmark','stance','transfer') NOT NULL");

@@ -139,22 +139,47 @@
     return wrap;
   }
 
-  // "Transfer: Rakip alıyor ▾" — Bizimle mi? çipiyle aynı tasarım (rozet görünümlü yerel <select>)
+  // Transfer: iki durumlu düğme (button[aria-pressed]) — "Kendisi gelecek" (beyaz) <-> "Transfer" (amber).
+  // Tek dokunuş değiştirir; açılır menü yok. İyimser güncelleme, hata olursa eski duruma döner.
+  function paintTransfer(btn, on) {
+    var st = on ? cfg.transferStates.on : cfg.transferStates.off;
+    btn.className = 'p-transfer badge badge-' + st.color;
+    btn.textContent = st.label;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.title = on ? 'Transfer — dokununca "Kendisi gelecek" olur' : 'Kendisi gelecek — dokununca "Transfer" olur';
+  }
+
   function transferControl(p) {
-    var cur = p.transfer || { value: null, label: 'Belirsiz', color: 'warning' };
-    var wrap = el('label', 'p-stance p-transfer badge badge-' + cur.color);
-    wrap.appendChild(el('span', 'sr-only', 'Transfer'));
-    var sel = el('select', 'p-stance-select');
-    cfg.transfers.forEach(function (o) {
-      var opt = el('option', null, 'Transfer: ' + o.label);
-      opt.value = o.value;
-      sel.appendChild(opt);
-    });
-    sel.value = cur.value || 'belirsiz';
-    wrap.appendChild(el('span', null, 'Transfer: ' + cur.label));
-    wrap.appendChild(sel);
-    sel.addEventListener('change', function () { changeTransfer(p.id, sel.value, sel); });
-    return wrap;
+    var on = !!(p.transfer && p.transfer.value === 'transfer');
+    var btn = el('button');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Transfer');
+    paintTransfer(btn, on);
+    btn.addEventListener('click', function () { toggleTransfer(p.id, btn); });
+    return btn;
+  }
+
+  function toggleTransfer(id, btn) {
+    if (btn.__busy) return; // çift dokunuşta ikinci istek gitmesin
+    btn.__busy = true;
+    btn.setAttribute('aria-busy', 'true');
+    var was = btn.getAttribute('aria-pressed') === 'true';
+    paintTransfer(btn, !was); // iyimser
+    post(cfg.api.transfer, { person_id: id, value: was ? '' : 'transfer' })
+      .then(function (res) {
+        if (res.ok && res.person) {
+          replaceCard(res.person);
+          toast('Kaydedildi: ' + res.person.transfer.label, 'success');
+        } else {
+          paintTransfer(btn, was);
+          toast(res.error || 'Kaydedilemedi', 'error');
+        }
+      })
+      .catch(function (err) {
+        paintTransfer(btn, was);
+        if (err.message !== 'auth') toast('Bağlantı yok, tekrar deneyin', 'error');
+      })
+      .finally(function () { btn.__busy = false; btn.removeAttribute('aria-busy'); });
   }
 
   // Bölge + mahalle TEK satır: "Kemer / Beldibi Mah." (mahalle yoksa sadece bölge). Uzunsa ... ile kesilir, title'da tamamı.
@@ -291,21 +316,6 @@
       .then(function (res) {
         if (res.person) replaceCard(res.person);
         if (res.ok) toast('Kaydedildi: ' + res.person.stance.label, 'success');
-        else { toast(res.error || 'Kaydedilemedi', 'error'); sel.disabled = false; }
-      })
-      .catch(function (err) {
-        if (err.message === 'auth') return;
-        sel.disabled = false;
-        toast('Bağlantı yok, tekrar deneyin', 'error');
-      });
-  }
-
-  function changeTransfer(id, value, sel) {
-    sel.disabled = true;
-    post(cfg.api.transfer, { person_id: id, value: value === 'belirsiz' ? '' : value })
-      .then(function (res) {
-        if (res.person) replaceCard(res.person);
-        if (res.ok) toast('Transfer kaydedildi: ' + res.person.transfer.label, 'success');
         else { toast(res.error || 'Kaydedilemedi', 'error'); sel.disabled = false; }
       })
       .catch(function (err) {
