@@ -80,6 +80,25 @@ a { color: var(--primary); }
 .badge-success { background: var(--success-soft); color: var(--success); border-color: transparent; }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .badge-warning { background: var(--warning-soft); color: var(--warning); border-color: transparent; }
+/* Düz (beyaz) rozet: renk vermez — "Ziyaret", "Gelmeyecek" gibi nötr durumlar için */
+.badge-plain { background: #fff; color: var(--text); border-color: #cbd2dc; }
+
+/* Açılır konum satırı (onay + hediye kartı): satır dokununca kart yerinde açılır, içinde adres + Yol tarifi */
+.place-btn { display: flex; align-items: center; gap: 6px; width: 100%; max-width: 100%; min-height: 36px; padding: 4px 0; margin: 0 0 6px; border: 0; background: transparent; font: inherit; font-size: .9rem; font-weight: 600; color: var(--text); text-align: left; cursor: pointer; }
+.place-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-caret { flex: none; color: var(--primary); font-size: .85rem; transition: transform .15s; }
+.place-btn[aria-expanded="true"] .place-caret { transform: rotate(180deg); }
+.place-btn:focus-visible { outline: 3px solid var(--primary-soft); outline-offset: 1px; border-radius: var(--radius-sm); }
+.place-panel { display: grid; gap: 10px; margin: 0 0 10px; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: .9rem; }
+.place-line { color: var(--muted); overflow-wrap: anywhere; }
+.place-line strong { color: var(--text); }
+.place-item { display: grid; gap: 8px; }
+.place-label { font-size: .8rem; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
+.place-addr { color: var(--text); line-height: 1.4; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.place-none { color: var(--muted); font-style: italic; }
+.btn.btn-route { display: flex; width: 100%; min-height: 52px; font-size: 1.05rem; font-weight: 700; background: var(--primary); border-color: var(--primary); color: #fff; border-radius: var(--radius); }
+.btn.btn-route:hover { background: var(--primary-hover); }
+@media (prefers-reduced-motion: reduce) { .place-caret { transition: none; } }
 .chip { text-decoration: none; display: inline-flex; align-items: center; min-height: 36px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: .9rem; cursor: pointer; white-space: nowrap; }
 .chip.is-active { background: var(--text); border-color: var(--text); color: #fff; }
 

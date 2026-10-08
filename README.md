@@ -53,8 +53,19 @@ kaydedilmez. Kullanıcılar silinmez, pasife alınır; geçmişte kimin işaretl
 Kartta GELDİ'nin yanındaki telefon simgesine dokununca telefon o numarayı arar. Numara Excel'in
 **Gsm** sütunundan alınır (Gsm boşsa **Tel**). Yeni liste yüklerken Gsm/Tel sütunları kendiliğinden
 "Telefon" olarak seçili gelir. **Zaten yüklü listeye** telefon eklemek için: Liste yükle → aynı Excel →
-"Sadece telefonları güncelle" (sicil no ile eşleşir; kimse eklenmez, işaretler değişmez).
+"Sadece mevcut kayıtları güncelle" (sicil no, yoksa tam ad ile eşleşir; kimse eklenmez, işaretler değişmez).
 Simgeyi kimin göreceği `src/auth.php` → `PERMISSIONS['call']` (şu an üç rol de).
+
+## Mahalle ve Transfer
+
+- **Mahalle:** Excel'in "Adres" sütunu "Adres (sadece mahalle alınır)" olarak eşlenir; adresin tamamı hiçbir yere
+  yazılmaz/önizlenmez, sadece mahalle çıkarılır ("BELDİBİ MAH. ATATÜRK CAD..." → "Beldibi Mah."). Kartta
+  "Bölge / Mahalle" tek satır görünür; aramada mahalleyle de bulunur. Mevcut listeye mahalle/transfer doldurmak için:
+  Liste yükle → aynı Excel → "Sadece mevcut kayıtları güncelle" (aynı dosyayı tekrar yüklemek güvenlidir).
+- **Transfer:** kartta "Transfer: …" çipi (Bizimle mi? ile aynı yetki: admin/yönetici). Seçenekler `config.php` →
+  `transfer_options`. Excel'de "Transfer" başlıklı sütun eşlenir; tanınmayan değer Belirsiz olur.
+- Veritabanı güncellemesi: `C:\xampp\php\php.exe bin\setup.php` (idempotent; sütunları ve `attendance_log` ENUM'unu ekler).
+- Ekranlar 10 sn'de bir arka planda (sekme görünürken) tazelenir; sayfa yenilenmez, sadece değişen kartlar güncellenir.
 
 ## Yeni kişi (elle)
 

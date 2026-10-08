@@ -17,6 +17,7 @@ const AUDIT_ACTIONS = [
     'user_deactivate'    => 'Kullanıcı pasif',
     'import'             => 'Liste yüklendi',
     'import_phones'      => 'Telefonlar güncellendi',
+    'import_update'      => 'Kayıtlar güncellendi (telefon / mahalle / transfer)',
     'person_create'      => 'Kişi eklendi',
     'export'             => 'Excel indirildi',
     'event_create'       => 'Liste açıldı',

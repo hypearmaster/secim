@@ -1,5 +1,7 @@
-// Onay ekranı: arama, filtre, GELDİ / Geri al, "Bizimle mi?", telefonla ara, yeni kişi ekle.
+// Onay ekranı: arama, filtre, GELDİ / Geri al, "Bizimle mi?", Transfer, telefonla ara, yeni kişi ekle.
 // Kural: kişi verisi DOM'a sadece textContent ile girer (innerHTML yok).
+// Canlı yenileme: sayfa/liste baştan çizilmez; 10 sn'de bir arka planda veri çekilir (sekme görünürken),
+// sadece değişen kartlar/sayılar yerinde güncellenir (live.js). Kaydırma, arama kutusu, odak bozulmaz.
 (function () {
   'use strict';
 
@@ -22,10 +24,15 @@
     filterBadge: document.getElementById('filter-badge')
   };
 
+  var POLL_MS = 10000;
   var state = { q: '', status: 'all', region: '', group: '', stance: '', page: 1 };
   var controller = null;
-  var lastLoad = 0;
   var debounce = null;
+  var loading = false;   // liste (baştan) yükleniyor: arka plan yenilemesi beklesin
+  var inflight = 0;      // devam eden POST sayısı
+  var opVer = 0;         // her POST başında/sonunda artar: eski anlık görüntü yeni işlemi ezmesin
+  var queryVer = 0;      // arama/filtre her değiştiğinde artar
+  var pollCtl = null;
 
   /* ---------- yardımcılar ---------- */
 
@@ -69,7 +76,14 @@
       });
   }
 
-  function post(url, data, retried) {
+  // İşlem sayacı: devam eden bir işlem varken gelen arka plan yanıtı uygulanmaz
+  function post(url, data) {
+    inflight++;
+    opVer++;
+    return rawPost(url, data, false).finally(function () { inflight--; opVer++; });
+  }
+
+  function rawPost(url, data, retried) {
     var body = new URLSearchParams(data);
     var headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' };
     headers[CSRF_HEADER] = csrf;
@@ -79,7 +93,7 @@
         return r.json().then(function (j) { j.httpStatus = r.status; return j; });
       })
       .then(function (j) {
-        if (j.csrf && !retried) return refreshCsrf().then(function () { return post(url, data, true); });
+        if (j.csrf && !retried) return refreshCsrf().then(function () { return rawPost(url, data, true); });
         return j;
       });
   }
@@ -125,6 +139,46 @@
     return wrap;
   }
 
+  // "Transfer: Rakip alıyor ▾" — Bizimle mi? çipiyle aynı tasarım (rozet görünümlü yerel <select>)
+  function transferControl(p) {
+    var cur = p.transfer || { value: null, label: 'Belirsiz', color: 'warning' };
+    var wrap = el('label', 'p-stance p-transfer badge badge-' + cur.color);
+    wrap.appendChild(el('span', 'sr-only', 'Transfer'));
+    var sel = el('select', 'p-stance-select');
+    cfg.transfers.forEach(function (o) {
+      var opt = el('option', null, 'Transfer: ' + o.label);
+      opt.value = o.value;
+      sel.appendChild(opt);
+    });
+    sel.value = cur.value || 'belirsiz';
+    wrap.appendChild(el('span', null, 'Transfer: ' + cur.label));
+    wrap.appendChild(sel);
+    sel.addEventListener('change', function () { changeTransfer(p.id, sel.value, sel); });
+    return wrap;
+  }
+
+  // Bölge + mahalle TEK satır: "Kemer / Beldibi Mah." (mahalle yoksa sadece bölge). Uzunsa ... ile kesilir, title'da tamamı.
+  // Satır dokunulabilir: kart yerinde açılır (tam adres, yetkili, firma/sicil + "Yol tarifi"). Adres yoksa "Adres kayıtlı değil".
+  function addPlace(main, p) {
+    var regions = p.regions && p.regions.length ? p.regions : (p.region ? [p.region] : []);
+    var hoods = p.neighborhoods && p.neighborhoods.length ? p.neighborhoods : (p.neighborhood ? [p.neighborhood] : []);
+    var places = (p.places || []).map(function (x) { return { label: x.firm, address: x.address }; });
+    var hoodShort = hoods.length > 1 ? hoods[0] + ' +' + (hoods.length - 1) : (hoods[0] || '');
+    var text = [regions.join(', '), hoodShort].filter(Boolean).join(' / ') || (places.length ? 'Adres' : 'Konum bilgisi yok');
+    var lines = [];
+    if (p.authority) lines.push(['Yetkili', p.authority]);
+    if (p.count > 1) lines.push(['Firma', p.firms.join(', ')]);
+    else if (p.authority) lines.push(['Firma', p.full_name]);
+    if (p.ref_no) lines.push(['Sicil', p.ref_no]);
+    var pl = window.secimLive.place({
+      scope: 'onay', id: p.id, text: text,
+      title: [regions.join(', '), hoods.join(', ')].filter(Boolean).join(' / '),
+      lines: lines, places: places
+    });
+    main.appendChild(pl.btn);
+    main.appendChild(pl.panel);
+  }
+
   function card(p) {
     var bizimle = cfg.supporterStance && p.stance && p.stance.value === cfg.supporterStance;
     var rakip = p.stance && p.stance.value === 'karsi';
@@ -147,13 +201,12 @@
     } else if (p.authority) {
       main.appendChild(el('div', 'p-firm', p.full_name));
     }
+    addPlace(main, p);
+    // Grup (ör. "Grup 10") kartta gösterilmez; veri DB'de durur, filtre çipinde kullanılır.
     var tags = el('div', 'p-tags');
-    (p.regions && p.regions.length ? p.regions : (p.region ? [p.region] : [])).forEach(function (r) {
-      tags.appendChild(el('span', 'badge', r));
-    });
-    if (p.group_name) tags.appendChild(el('span', 'badge', p.group_name));
     if (p.ref_no) tags.appendChild(el('span', 'p-ref', p.count > 1 ? p.ref_no : 'Sicil ' + p.ref_no));
     if (cfg.canStance) tags.appendChild(stanceControl(p));
+    if (cfg.canTransfer) tags.appendChild(transferControl(p));
     main.appendChild(tags);
     c.appendChild(main);
 
@@ -184,12 +237,23 @@
       act.appendChild(u);
     }
     c.appendChild(act);
-    return c;
+    return window.secimLive.sign(c, p); // arka plan yenilemesi değişikliği bu imzayla anlar
   }
 
   function replaceCard(p) {
     var old = els.list.querySelector('.p-card[data-id="' + p.id + '"]');
-    if (old) old.replaceWith(card(p));
+    if (!old) return;
+    var fresh = card(p);
+    fresh.__touched = true; // bu oturumda işlem yapılan kart: arka plan yenilemesi silmesin
+    carryOpen(old, fresh);
+    old.replaceWith(fresh);
+  }
+
+  // Yerine konan kartta açık "şubeler" listesi kapanmasın
+  function carryOpen(oldNode, freshNode) {
+    var od = oldNode.querySelector('details.p-firms');
+    var nd = freshNode ? freshNode.querySelector('details.p-firms') : null;
+    if (od && nd && od.open) nd.open = true;
   }
 
   /* ---------- işlemler ---------- */
@@ -236,12 +300,29 @@
       });
   }
 
+  function changeTransfer(id, value, sel) {
+    sel.disabled = true;
+    post(cfg.api.transfer, { person_id: id, value: value === 'belirsiz' ? '' : value })
+      .then(function (res) {
+        if (res.person) replaceCard(res.person);
+        if (res.ok) toast('Transfer kaydedildi: ' + res.person.transfer.label, 'success');
+        else { toast(res.error || 'Kaydedilemedi', 'error'); sel.disabled = false; }
+      })
+      .catch(function (err) {
+        if (err.message === 'auth') return;
+        sel.disabled = false;
+        toast('Bağlantı yok, tekrar deneyin', 'error');
+      });
+  }
+
   /* ---------- arama / liste ---------- */
 
   function load(reset) {
-    if (reset) state.page = 1;
+    if (reset) { state.page = 1; queryVer++; }
+    if (pollCtl) pollCtl.abort();
     if (controller) controller.abort();
-    controller = new AbortController();
+    var me = controller = new AbortController();
+    loading = true;
     var params = new URLSearchParams({
       q: state.q, status: state.status, region: state.region,
       group: state.group, stance: state.stance, page: state.page
@@ -257,11 +338,14 @@
         return r.json();
       })
       .then(function (res) {
-        lastLoad = Date.now();
         if (!res.ok) { toast(res.error || 'Liste alınamadı', 'error'); return; }
         if (reset) els.list.textContent = '';
         var frag = document.createDocumentFragment();
-        res.items.forEach(function (p) { frag.appendChild(card(p)); });
+        res.items.forEach(function (p) {
+          // "Daha fazla": arka plan yenilemesi araya kart eklediyse aynı kart iki kez çizilmesin
+          if (!reset && els.list.querySelector('.p-card[data-id="' + p.id + '"]')) return;
+          frag.appendChild(card(p));
+        });
         els.list.appendChild(frag);
         els.empty.hidden = res.total > 0;
         els.more.hidden = !res.has_more;
@@ -272,9 +356,63 @@
         toast('Bağlantı yok, tekrar deneyin', 'error');
       })
       .finally(function () {
+        if (controller !== me) return; // araya yeni bir yükleme girdi; o kendi bitişini yönetir
+        loading = false;
         root.classList.remove('is-loading');
         els.more.disabled = false;
       });
+  }
+
+  /* ---------- arka plan yenilemesi (sayfa yenilenmez) ---------- */
+
+  // Filtre çiplerindeki sayıları yerinde günceller
+  function applyFacets(f) {
+    if (!f) return;
+    document.querySelectorAll('.chips').forEach(function (row) {
+      var map = f[row.getAttribute('data-filter')];
+      if (!map) return;
+      row.querySelectorAll('.chip').forEach(function (chip) {
+        var v = chip.getAttribute('data-value');
+        var n = chip.querySelector('.chip-count');
+        if (n && map[v] !== undefined && n.textContent !== String(map[v])) n.textContent = map[v];
+      });
+    });
+  }
+
+  function poll() {
+    if (loading || inflight > 0 || pollCtl) return;
+    var q0 = queryVer, o0 = opVer;
+    var pages = Math.min(5, Math.max(1, state.page));
+    var me = pollCtl = new AbortController();
+    var params = new URLSearchParams({
+      q: state.q, status: state.status, region: state.region,
+      group: state.group, stance: state.stance, page: 1, upto: pages, facets: 1
+    });
+    fetch(cfg.api.search + '?' + params.toString(), {
+      signal: me.signal, credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' }
+    })
+      .then(function (r) {
+        if (r.status === 401) { goLogin(); throw new Error('auth'); }
+        return r.json();
+      })
+      .then(function (res) {
+        // Bu arada arama/filtre değiştiyse ya da bir işlem yapıldıysa bu anlık görüntü eskidir: at
+        if (!res.ok || q0 !== queryVer || o0 !== opVer || inflight > 0 || loading) return;
+        if (res.event_id != null && cfg.eventId != null && res.event_id !== cfg.eventId) {
+          window.secimNav ? window.secimNav.reload() : window.location.reload(); // aktif liste değişti: tam yenile
+          return;
+        }
+        setStats(res.stats);
+        applyFacets(res.facets);
+        var partial = state.page > pages; // 5 sayfadan fazlası yüklü: sadece var olan kartları güncelle
+        window.secimLive.reconcile(els.list, res.items, { build: card, sel: '.p-card', patchOnly: partial, carry: carryOpen, keep: function (n) { return n.__touched; } });
+        if (!partial) {
+          els.empty.hidden = res.total > 0;
+          els.more.hidden = !res.has_more;
+        }
+      })
+      .catch(function () { /* sessiz: bir sonraki turda tekrar dener */ })
+      .finally(function () { if (pollCtl === me) pollCtl = null; });
   }
 
   function updateFilterBadge() {
@@ -328,13 +466,8 @@
     load(false);
   });
 
-  // Sekmeye geri dönülünce (başka onaycılar da işaretliyor) listeyi tazele
-  if (window.__onayVisibility) document.removeEventListener('visibilitychange', window.__onayVisibility);
-  window.__onayVisibility = function () {
-    if (!document.body.contains(root)) return; // onay ekranından ayrıldık
-    if (document.visibilityState === 'visible' && Date.now() - lastLoad > 15000) load(true);
-  };
-  document.addEventListener('visibilitychange', window.__onayVisibility);
+  // Başka onaycılar da işaretliyor: sekme görünürken 10 sn'de bir, sekmeye dönünce hemen arka planda tazele
+  window.secimLive.start('onay', root, poll, POLL_MS);
 
   /* ---------- yeni kişi (yönetici) ---------- */
 

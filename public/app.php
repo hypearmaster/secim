@@ -7,6 +7,7 @@ $user = require_perm('mark');
 $event = active_event();
 $regionLocked = !can('view_all', $user) && ($user['region'] ?? '') !== '';
 $canStance = can('stance', $user);
+$canTransfer = can('transfer', $user);
 $canAdd = can('add_person', $user);
 
 $regions = ($event && !$regionLocked) ? people_breakdown($user, 'region') : [];
@@ -18,11 +19,19 @@ foreach (stance_options() as $value => [$label, $color]) {
     $stances[] = ['value' => $value, 'label' => $label, 'color' => $color, 'total' => $stanceCounts[$value]['total'] ?? 0];
 }
 
+$transfers = [];
+foreach (transfer_options() as $value => [$label, $color]) {
+    $transfers[] = ['value' => $value, 'label' => $label, 'color' => $color];
+}
+
 $config = [
     'api'       => ['search' => url('api/search.php'), 'mark' => url('api/mark.php'), 'stance' => url('api/stance.php'),
-                    'person' => url('api/person.php')],
+                    'transfer' => url('api/transfer.php'), 'person' => url('api/person.php')],
     'login'     => url('index.php'),
+    'eventId'   => $event['id'] ?? null,
     'canStance' => $canStance,
+    'canTransfer' => $canTransfer,
+    'transfers' => $canTransfer ? $transfers : [],
     'supporterStance' => $canStance ? (string) config('supporter_stance', 'bizimle') : null, // mavi zemin
     'stances'   => $stances,
     'stats'     => scope_stats($user),
@@ -141,4 +150,4 @@ render_header('Onay', 'app', ['onay.css']);
 <?php endif; ?>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </main>
-<?php render_footer(['onay.js']); ?>
+<?php render_footer(['live.js', 'onay.js']); ?>

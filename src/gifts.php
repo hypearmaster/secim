@@ -27,6 +27,78 @@ function gift_region_index(int $eventId): array
     return $index;
 }
 
+/**
+ * Hediye kartında gösterilen mahalle / transfer: tam isim/unvan (ve onaylı Bizimkiler bağlantısı) ile
+ * eşleşen kişi kayıtlarından okunur — hediye listesi ayrı tablo, bu bilgi orada saklanmaz.
+ * @return array<string, list<array{neighborhood:?string, transfer:?string}>> search_key => kayıtlar
+ */
+function gift_info_index(int $eventId): array
+{
+    $rows = q('SELECT full_name AS name, authority, neighborhood, address, transfer FROM people WHERE event_id = ?', [$eventId])->fetchAll();
+    $linked = q("SELECT s.name, NULL AS authority, p.neighborhood, p.address, p.transfer FROM supporters s
+        JOIN supporter_people sp ON sp.supporter_id = s.id JOIN people p ON p.id = sp.person_id
+        WHERE s.event_id = ? AND p.event_id = ? AND s.status = 'matched'", [$eventId, $eventId])->fetchAll();
+    $index = [];
+    foreach (array_merge($rows, $linked) as $row) {
+        foreach (array_merge([$row['name']], explode(',', (string) $row['authority'])) as $name) {
+            $key = search_key($name);
+            if ($key !== '') $index[$key][] = ['neighborhood' => $row['neighborhood'], 'address' => $row['address'], 'transfer' => $row['transfer']];
+        }
+    }
+    return $index;
+}
+
+/**
+ * Tek isim için (işaretle/ekle gibi tek kartlık yanıtlarda tüm tabloyu taramamak için) aynı eşleşme kuralı.
+ * @return list<array{neighborhood:?string, address:?string, transfer:?string}>
+ */
+function gift_info_rows_for(int $eventId, string $name): array
+{
+    $key = search_key($name);
+    if ($key === '') {
+        return [];
+    }
+    $words = array_slice(array_filter(explode(' ', $key)), 0, 6);
+    $like = implode(' AND ', array_fill(0, count($words), 'p.search_key LIKE ?'));
+    $out = [];
+    $params = [$eventId, ...array_map(fn($w) => '%' . like_escape($w) . '%', $words)];
+    foreach (q("SELECT p.full_name, p.authority, p.neighborhood, p.address, p.transfer FROM people p WHERE p.event_id = ? AND $like", $params)->fetchAll() as $r) {
+        $names = array_map('search_key', [$r['full_name'], ...explode(',', (string) $r['authority'])]);
+        if (in_array($key, $names, true)) {
+            $out[] = ['neighborhood' => $r['neighborhood'], 'address' => $r['address'], 'transfer' => $r['transfer']];
+        }
+    }
+    foreach (q("SELECT p.neighborhood, p.address, p.transfer FROM supporters s
+        JOIN supporter_people sp ON sp.supporter_id = s.id JOIN people p ON p.id = sp.person_id
+        WHERE s.event_id = ? AND p.event_id = ? AND s.status = 'matched' AND s.search_key = ?", [$eventId, $eventId, $key])->fetchAll() as $r) {
+        $out[] = ['neighborhood' => $r['neighborhood'], 'address' => $r['address'], 'transfer' => $r['transfer']];
+    }
+    return $out;
+}
+
+/**
+ * Hediye görünümlerine neighborhood / transfer ekler. Kayıtlar çelişiyorsa (farklı mahalle/transfer) boş bırakılır.
+ * Birkaç kart: isim başına hedefli sorgu; çok kart (liste): bir kez tam indeks.
+ */
+function gift_decorate(array $views, int $eventId, ?array $user = null): array
+{
+    if (!$views) {
+        return $views;
+    }
+    $index = count($views) > 3 ? gift_info_index($eventId) : null;
+    $showTransfer = can('transfer', $user); // transfer çipi sadece yetkiliye (stance ile aynı hassasiyet)
+    foreach ($views as &$v) {
+        $rows = $index !== null ? ($index[search_key($v['name'])] ?? []) : gift_info_rows_for($eventId, $v['name']);
+        $hoods = array_values(array_unique(array_filter(array_column($rows, 'neighborhood'))));
+        $transfers = array_values(array_unique(array_column($rows, 'transfer'), SORT_REGULAR));
+        $v['neighborhood'] = count($hoods) === 1 ? $hoods[0] : null;
+        // Eşleşen kayıtların farklı adresleri (şubeler): en çok 3; kartta açılır + Yol tarifi
+        $v['addresses'] = array_slice(array_values(array_unique(array_filter(array_column($rows, 'address')))), 0, 3);
+        $v['transfer'] = $showTransfer && $rows && count($transfers) === 1 ? transfer_view($transfers[0]) : null;
+    }
+    return $views;
+}
+
 function gift_matched_region(string $name, array $index): ?string
 {
     $regions = array_unique($index[search_key($name)] ?? []);
@@ -70,7 +142,7 @@ function set_gift_region(array $user, int $id, string $region, int $expectedEven
     q('UPDATE gifts SET region = ? WHERE id = ? AND event_id = ?', [$region, $id, $event['id']]);
     audit('gift_region', $row['name'], ['bölge' => $region], $user['id']);
     $row['region'] = $region;
-    return ['ok' => true, 'status' => 200, 'gift' => gift_view($row)];
+    return ['ok' => true, 'status' => 200, 'gift' => gift_decorate([gift_view($row)], $event['id'], $user)[0]];
 }
 
 /** API/arayüz için tek tip hediye gösterimi. */
@@ -93,7 +165,7 @@ function gift_view(array $row): array
  * @param array{q?:string,status?:string} $f  status: all|given|pending
  * @return array{items:list<array>, total:int}
  */
-function search_gifts(array $f, int $limit = 50, int $offset = 0): array
+function search_gifts(array $f, int $limit = 50, int $offset = 0, ?array $user = null): array
 {
     $event = active_event();
     if ($event === null) {
@@ -124,7 +196,7 @@ function search_gifts(array $f, int $limit = 50, int $offset = 0): array
     $limit = max(1, min(200, $limit));
     $offset = max(0, $offset);
     $rows = q(GIFT_SELECT . " WHERE $where ORDER BY g.name, g.id LIMIT $limit OFFSET $offset", $params)->fetchAll();
-    return ['items' => array_map('gift_view', $rows), 'total' => $total];
+    return ['items' => gift_decorate(array_map('gift_view', $rows), $event['id'], $user), 'total' => $total];
 }
 
 /** @return array{total:int, given:int} aktif etkinliğin hediye sayacı */
@@ -163,7 +235,7 @@ function mark_gift(array $user, int $id, bool $give): array
     if (!$row) {
         return ['ok' => false, 'status' => 404, 'error' => 'Hediye kaydı bulunamadı.'];
     }
-    $view = gift_view($row);
+    $view = gift_decorate([gift_view($row)], $event['id'], $user)[0];
     if ($st->rowCount() === 1) {
         return ['ok' => true, 'status' => 200, 'gift' => $view];
     }
@@ -201,7 +273,7 @@ function add_gift(array $user, string $name, ?string $note = null): array
     $id = (int) db()->lastInsertId();
     audit('gift_add', $clean, $note !== null ? ['not' => $note] : [], $user['id']);
     $row = q(GIFT_SELECT . ' WHERE g.id = ?', [$id])->fetch();
-    return ['ok' => true, 'status' => 200, 'gift' => gift_view($row)];
+    return ['ok' => true, 'status' => 200, 'gift' => gift_decorate([gift_view($row)], $event['id'], $user)[0]];
 }
 
 /**

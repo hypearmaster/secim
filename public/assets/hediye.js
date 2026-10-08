@@ -1,5 +1,7 @@
 // Hediye ekranı: arama, filtre, VERDİK / Geri al, elle kişi ekle.
 // Kural: kişi verisi DOM'a sadece textContent ile girer (innerHTML yok).
+// Canlı yenileme: sayfa/liste baştan çizilmez; 10 sn'de bir arka planda veri çekilir (sekme görünürken),
+// sadece değişen kartlar/sayılar yerinde güncellenir (live.js).
 (function () {
   'use strict';
 
@@ -30,10 +32,15 @@
     addSave: document.getElementById('gift-add-save')
   };
 
+  var POLL_MS = 10000;
   var state = { q: '', status: 'all', region: '', page: 1 };
   var controller = null;
-  var lastLoad = 0;
   var debounce = null;
+  var loading = false;   // liste (baştan) yükleniyor: arka plan yenilemesi beklesin
+  var inflight = 0;      // devam eden POST sayısı
+  var opVer = 0;         // her POST başında/sonunda artar: eski anlık görüntü yeni işlemi ezmesin
+  var queryVer = 0;      // arama/filtre her değiştiğinde artar
+  var pollCtl = null;
 
   /* ---------- yardımcılar ---------- */
 
@@ -61,7 +68,14 @@
 
   function goLogin() { window.location.href = cfg.login; }
 
+  // İşlem sayacı: devam eden bir işlem varken gelen arka plan yanıtı uygulanmaz
   function post(data) {
+    inflight++;
+    opVer++;
+    return rawPost(data).finally(function () { inflight--; opVer++; });
+  }
+
+  function rawPost(data) {
     var headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' };
     headers[CSRF_HEADER] = csrf;
     return fetch(cfg.api, { method: 'POST', body: new URLSearchParams(data), headers: headers, credentials: 'same-origin' })
@@ -80,6 +94,17 @@
     var main = el('div', 'g-main');
     main.appendChild(el('h3', 'g-name', g.name));
     if (g.note) main.appendChild(el('div', 'g-note', g.note));
+    // Onay listesindeki kayıttan (tam isim eşleşmesi): "Kemer / Beldibi Mah." ve Transfer çipi (yetkiliye)
+    // Satıra dokununca kart yerinde açılır: tam adres + Yol tarifi (adres yoksa "Adres kayıtlı değil")
+    var places = (g.addresses || []).map(function (a) { return { label: '', address: a }; });
+    var whereText = [g.region, g.neighborhood].filter(Boolean).join(' / ') || (places.length ? 'Adres' : 'Konum bilgisi yok');
+    var pl = window.secimLive.place({
+      scope: 'hediye', id: g.id, text: whereText, title: whereText,
+      lines: [['Not', g.note]], places: places
+    });
+    main.appendChild(pl.btn);
+    main.appendChild(pl.panel);
+    if (g.transfer) main.appendChild(el('span', 'badge g-transfer badge-' + g.transfer.color, 'Transfer: ' + g.transfer.label));
     var regionLabel = el('label', 'g-region', 'Bölge');
     var regionSelect = el('select', 'input');
     regionSelect.setAttribute('aria-label', g.name + ' bölgesi');
@@ -129,12 +154,15 @@
       act.appendChild(u);
     }
     c.appendChild(act);
-    return c;
+    return window.secimLive.sign(c, g); // arka plan yenilemesi değişikliği bu imzayla anlar
   }
 
   function replaceCard(g) {
     var old = els.list.querySelector('.g-card[data-id="' + g.id + '"]');
-    if (old) old.replaceWith(card(g));
+    if (!old) return;
+    var fresh = card(g);
+    fresh.__touched = true; // bu oturumda işlem yapılan kart: arka plan yenilemesi silmesin
+    old.replaceWith(fresh);
   }
 
   /* ---------- işlemler ---------- */
@@ -203,9 +231,11 @@
   /* ---------- arama / liste ---------- */
 
   function load(reset) {
-    if (reset) state.page = 1;
+    if (reset) { state.page = 1; queryVer++; }
+    if (pollCtl) pollCtl.abort();
     if (controller) controller.abort();
-    controller = new AbortController();
+    var me = controller = new AbortController();
+    loading = true;
     var params = new URLSearchParams({ q: state.q, status: state.status, region: state.region, page: state.page });
     root.classList.add('is-loading');
     els.more.disabled = true;
@@ -218,11 +248,14 @@
         return r.json();
       })
       .then(function (res) {
-        lastLoad = Date.now();
         if (!res.ok) { toast(res.error || 'Liste alınamadı', 'error'); return; }
         if (reset) els.list.textContent = '';
         var frag = document.createDocumentFragment();
-        res.items.forEach(function (g) { frag.appendChild(card(g)); });
+        res.items.forEach(function (g) {
+          // "Daha fazla": arka plan yenilemesi araya kart eklediyse aynı kart iki kez çizilmesin
+          if (!reset && els.list.querySelector('.g-card[data-id="' + g.id + '"]')) return;
+          frag.appendChild(card(g));
+        });
         els.list.appendChild(frag);
         els.empty.hidden = res.total > 0;
         els.more.hidden = !res.has_more;
@@ -234,9 +267,46 @@
         toast('Bağlantı yok, tekrar deneyin', 'error');
       })
       .finally(function () {
+        if (controller !== me) return; // araya yeni bir yükleme girdi; o kendi bitişini yönetir
+        loading = false;
         root.classList.remove('is-loading');
         els.more.disabled = false;
       });
+  }
+
+  /* ---------- arka plan yenilemesi (sayfa yenilenmez) ---------- */
+
+  function poll() {
+    if (loading || inflight > 0 || pollCtl) return;
+    var q0 = queryVer, o0 = opVer;
+    var pages = Math.min(5, Math.max(1, state.page));
+    var me = pollCtl = new AbortController();
+    var params = new URLSearchParams({ q: state.q, status: state.status, region: state.region, page: 1, upto: pages });
+    fetch(cfg.api + '?' + params.toString(), {
+      signal: me.signal, credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' }
+    })
+      .then(function (r) {
+        if (r.status === 401) { goLogin(); throw new Error('auth'); }
+        return r.json();
+      })
+      .then(function (res) {
+        // Bu arada arama/filtre değiştiyse ya da bir işlem yapıldıysa bu anlık görüntü eskidir: at
+        if (!res.ok || q0 !== queryVer || o0 !== opVer || inflight > 0 || loading) return;
+        if (res.event_id != null && cfg.eventId != null && res.event_id !== cfg.eventId) {
+          window.secimNav ? window.secimNav.reload() : window.location.reload(); // aktif liste değişti: tam yenile
+          return;
+        }
+        setStats(res.stats);
+        var partial = state.page > pages; // 5 sayfadan fazlası yüklü: sadece var olan kartları güncelle
+        window.secimLive.reconcile(els.list, res.items, { build: card, sel: '.g-card', patchOnly: partial, keep: function (n) { return n.__touched; } });
+        if (!partial) {
+          els.empty.hidden = res.total > 0;
+          els.more.hidden = !res.has_more;
+          els.info.textContent = res.total + ' kayıt';
+        }
+      })
+      .catch(function () { /* sessiz: bir sonraki turda tekrar dener */ })
+      .finally(function () { if (pollCtl === me) pollCtl = null; });
   }
 
   els.region.addEventListener('change', function () { state.region = els.region.value; load(true); });
@@ -267,13 +337,8 @@
     load(false);
   });
 
-  // Sekmeye geri dönülünce (başkaları da işaretliyor) listeyi tazele
-  if (window.__giftVisibility) document.removeEventListener('visibilitychange', window.__giftVisibility);
-  window.__giftVisibility = function () {
-    if (!document.body.contains(root)) return; // hediye ekranından ayrıldık
-    if (document.visibilityState === 'visible' && Date.now() - lastLoad > 15000) load(true);
-  };
-  document.addEventListener('visibilitychange', window.__giftVisibility);
+  // Başkaları da işaretliyor: sekme görünürken 10 sn'de bir, sekmeye dönünce hemen arka planda tazele
+  window.secimLive.start('hediye', root, poll, POLL_MS);
 
   setStats(cfg.stats);
   load(true);

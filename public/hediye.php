@@ -13,7 +13,7 @@ $config = [
     'login' => url('index.php'),
     'stats' => gift_stats(),
     'regions' => $event ? gift_regions($event['id']) : [],
-    'eventId' => $event['id'] ?? null,
+    'eventId' => $event['id'] ?? null, // arka plan yenilemesi: aktif liste değişirse tam yenile
 ];
 
 render_header('Hediye', 'hediye', ['hediye.css']);
@@ -81,4 +81,4 @@ render_header('Hediye', 'hediye', ['hediye.css']);
 <?php endif; ?>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </main>
-<?php render_footer(['hediye.js']); ?>
+<?php render_footer(['live.js', 'hediye.js']); ?>

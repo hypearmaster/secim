@@ -25,13 +25,23 @@ return [
     'remember_days' => 30,
     // Elle eklenen kişide sicil no yoksa yazılan değer (firma gruplamasında sicil sayılmaz).
     'placeholder_ref' => '11111111',
-    // "Bizimle mi?" sütunu seçenekleri: anahtar => [etiket, renk(success|warning|danger|muted)].
+    // "Bizimle mi?" sütunu seçenekleri: anahtar => [etiket, renk(success|warning|danger|muted|plain)].
     // Anahtarlar DB'ye yazılır; bir anahtarı silerseniz o değerdeki kayıtlar "Belirsiz" görünür.
     'stance_options' => [
         'bizimle'  => ['Bizimle', 'success'],
         'kararsiz' => ['Kararsız', 'warning'],
         'karsi'    => ['Rakip', 'danger'],
         'bilinmiyor' => ['Bilinmiyor', 'muted'],
+        'ziyaret'    => ['Ziyaret', 'plain'],       // plain = beyaz rozet, kart zemini renklenmez
+        'gelmeyecek' => ['Gelmeyecek', 'plain'],
+    ],
+    // "Transfer" çipi (kişi başka kuruma/partiye geçiyor mu?): anahtar => [etiket, renk(success|warning|danger|muted)].
+    // 'belirsiz' = boş (NULL); config'de yoksa kendiliğinden eklenir. Anahtarlar DB'ye yazılır.
+    'transfer_options' => [
+        'aliyoruz'  => ['Biz alıyoruz', 'success'],
+        'almiyoruz' => ['Almıyoruz', 'muted'],
+        'rakip'     => ['Rakip alıyor', 'danger'],
+        'belirsiz'  => ['Belirsiz', 'warning'],
     ],
     // Bizimkiler listesinde eşleşenlere yazılan "Bizimle mi?" anahtarı; onay ekranında mavi zemin.
     'supporter_stance' => 'bizimle',

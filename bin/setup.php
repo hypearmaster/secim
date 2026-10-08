@@ -99,6 +99,26 @@ if (!$has('supporters', 'source')) {
     db()->exec("ALTER TABLE supporters ADD COLUMN source ENUM('list','manual') NOT NULL DEFAULT 'list' AFTER status");
     echo "  Bizimkiler: kaynak sütunu eklendi\n";
 }
+if (!$has('people', 'neighborhood')) {
+    db()->exec("ALTER TABLE people ADD COLUMN neighborhood VARCHAR(120) NULL AFTER region");
+    echo "  kişiler: mahalle sütunu eklendi (mevcut kayıtlar için aynı Excel'i Liste yükle → \"Sadece mevcut kayıtları güncelle\" ile doldurun)
+";
+}
+if (!$has('people', 'address')) {
+    db()->exec("ALTER TABLE people ADD COLUMN address VARCHAR(500) NULL AFTER neighborhood");
+    echo "  kişiler: adres sütunu eklendi (mevcut kayıtlar için aynı Excel'i Liste yükle → \"Sadece mevcut kayıtları güncelle\" ile doldurun)\n";
+}
+if (!$has('people', 'transfer')) {
+    db()->exec("ALTER TABLE people ADD COLUMN transfer VARCHAR(32) NULL AFTER stance");
+    echo "  kişiler: transfer sütunu eklendi
+";
+}
+// attendance_log.action ENUM'una 'transfer' (idempotent: zaten varsa dokunmaz)
+if (strpos((string) q("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_log' AND COLUMN_NAME = 'action'")->fetchColumn(), "'transfer'") === false) {
+    db()->exec("ALTER TABLE attendance_log MODIFY COLUMN action ENUM('mark','unmark','stance','transfer') NOT NULL");
+    echo "  işlem kaydı: 'transfer' eylemi eklendi
+";
+}
 $empty = q("SELECT id, full_name, authority, ref_no FROM people WHERE firm_key = ''")->fetchAll();
 foreach ($empty as $p) {
     q('UPDATE people SET firm_key = ? WHERE id = ?', [firm_key($p['full_name'], $p['authority'], $p['ref_no']), $p['id']]);

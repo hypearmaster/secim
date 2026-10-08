@@ -22,6 +22,7 @@ const PERMISSIONS = [
     'supporters'    => ['admin', 'yonetici'],           // Bizimkiler listesini görür
     'manage_supporters' => ['admin'],                   // Bizimkiler yükler / eşleştirir
     'stance'        => ['admin', 'yonetici'],           // "Bizimle mi?" sütununu görür ve değiştirir
+    'transfer'      => ['admin', 'yonetici'],           // "Transfer" çipini görür ve değiştirir (stance ile aynı hassasiyet)
     'call'          => ['admin', 'yonetici', 'onayci'], // kartta telefon simgesi (numara sadece buna gönderilir)
     'vote'          => ['admin', 'yonetici'],           // oy sayacı: görür ve sayar
     'vote_reset'    => ['admin', 'yonetici'],             // oy sayacını sıfırlar

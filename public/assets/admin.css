@@ -81,3 +81,30 @@
  .vote-summary-footer { flex-direction:column; }
 }
 @media(prefers-reduced-motion:reduce) { .vote-share-bar span { transition:none; } }
+
+/* Kayıtlar: güne göre gruplu satır listesi (tablo değil; telefonda yatay kaydırma yok) */
+.log-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 12px; align-items: end; }
+.log-filters .field { margin-bottom: 12px; }
+.log-filter-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.log-total { font-size: .85rem; font-weight: 500; margin-left: 6px; }
+.log-list { display: grid; }
+.log-day { margin: 18px 0 6px; padding-bottom: 6px; border-bottom: 2px solid var(--border); font-size: .95rem; color: var(--text); }
+.log-day:first-child { margin-top: 4px; }
+.log-day .muted { font-weight: 500; font-size: .8rem; margin-left: 6px; }
+.log-row { display: grid; grid-template-columns: 56px minmax(0, 1.4fr) auto minmax(0, 1.4fr); gap: 4px 12px; align-items: center; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.log-row:last-child { border-bottom: 0; }
+.log-time { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+.log-who { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.log-who .muted { font-size: .85rem; }
+.log-badge { justify-self: start; white-space: normal; }
+.log-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; font-size: .88rem; min-width: 0; overflow-wrap: anywhere; }
+.log-row.is-bizimle { background: var(--bizimle-soft); box-shadow: inset 4px 0 0 var(--bizimle); border-radius: var(--radius-sm); }
+.log-row.is-rakip { background: var(--danger-soft); box-shadow: inset 4px 0 0 var(--danger); border-radius: var(--radius-sm); }
+.log-pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 16px; }
+@media (max-width: 639px) {
+  .log-row { grid-template-columns: 52px minmax(0, 1fr); }
+  .log-who { grid-column: 2; grid-row: 1; }
+  .log-badge { grid-column: 2; grid-row: 2; }
+  .log-meta { grid-column: 1 / -1; grid-row: 3; padding-left: 64px; }
+  .log-time { grid-row: 1; }
+}

@@ -89,7 +89,7 @@ function people_scope(array $user, string $alias = 'p', ?int $eventId = null): a
 
 /* ---------- Arama anahtarı ---------- */
 
-/** "Şükrü Öztürk" -> "sukru ozturk": telefonda Türkçe karakter yazmadan da bulunsun. Ad + yetkili + sicil no. */
+/** "Şükrü Öztürk" -> "sukru ozturk": telefonda Türkçe karakter yazmadan da bulunsun. Ad + yetkili + sicil no (+ mahalle). */
 function search_key(?string ...$parts): string
 {
     $s = implode(' ', array_filter($parts, fn($p) => $p !== null && $p !== ''));
@@ -104,8 +104,8 @@ function search_key(?string ...$parts): string
 }
 
 /**
- * Tek kişi ekler (import bunu kullanır). $data: full_name (zorunlu), authority, region,
- * group_name, ref_no, extra (array|null). Değerler clean_text'ten geçirilir.
+ * Tek kişi ekler (import bunu kullanır). $data: full_name (zorunlu), authority, region, neighborhood,
+ * group_name, ref_no, transfer, extra (array|null). Değerler clean_text'ten geçirilir.
  */
 function insert_person(int $eventId, ?int $batchId, array $data): int
 {
@@ -116,17 +116,22 @@ function insert_person(int $eventId, ?int $batchId, array $data): int
     $refNo = clean_text($data['ref_no'] ?? null, 64);
     $authority = clean_text($data['authority'] ?? null, 255);
     $extra = !empty($data['extra']) ? json_encode($data['extra'], JSON_UNESCAPED_UNICODE) : null;
+    // Mahalle: adresten türetilir (build_people) ya da ayrı sütundan gelir; adres tam haliyle saklanır.
+    $hood = clean_text($data['neighborhood'] ?? null, 120);
     q(
-        'INSERT INTO people (event_id, batch_id, ref_no, phone, full_name, authority, region, group_name, stance, extra, search_key, firm_key, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+        'INSERT INTO people (event_id, batch_id, ref_no, phone, full_name, authority, region, neighborhood, address, group_name, stance, transfer, extra, search_key, firm_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
         [
             $eventId, $batchId, $refNo, normalize_phone($data['phone'] ?? null), $fullName,
             $authority,
             clean_text($data['region'] ?? null, 120),
+            $hood,
+            clean_text($data['address'] ?? null, 500),
             clean_text($data['group_name'] ?? null, 120),
             stance_from_text($data['stance'] ?? null),
+            transfer_from_text($data['transfer'] ?? null),
             $extra,
-            search_key($fullName, $authority, $refNo), // yetkili adıyla da bulunsun
+            search_key($fullName, $authority, $refNo, $hood), // yetkili adıyla ve mahalleyle de bulunsun
             firm_key($fullName, $authority, $refNo),
         ]
     );
@@ -199,7 +204,7 @@ function is_mobile_phone(?string $phone): bool
 
 /* ---------- Okuma ---------- */
 
-const PERSON_SELECT = 'SELECT p.id, p.event_id, p.firm_key, p.ref_no, p.phone, p.full_name, p.authority, p.region, p.group_name, p.stance,
+const PERSON_SELECT = 'SELECT p.id, p.event_id, p.firm_key, p.ref_no, p.phone, p.full_name, p.authority, p.region, p.neighborhood, p.address, p.group_name, p.stance, p.transfer,
         p.attended_at, p.attended_by, u.full_name AS attended_by_name
     FROM people p LEFT JOIN users u ON u.id = p.attended_by';
 
@@ -222,6 +227,8 @@ function person_view(array $row, array $user): array
         'full_name'        => $row['full_name'],
         'authority'        => $row['authority'],
         'region'           => $row['region'],
+        'neighborhood'     => $row['neighborhood'] ?? null,
+        'address'          => $row['address'] ?? null,
         'group_name'       => $row['group_name'],
         'ref_no'           => $row['ref_no'],
         // numara sadece arama yetkisi olana gider (kapsam dışındaki kişinin zaten kartı yok)
@@ -233,6 +240,7 @@ function person_view(array $row, array $user): array
         'can_unmark'       => $canUnmark,
         // stance yetkisi olmayana hiç gönderilmez (null)
         'stance'           => can('stance', $user) ? stance_view($row['stance']) : null,
+        'transfer'         => can('transfer', $user) ? transfer_view($row['transfer'] ?? null) : null,
     ];
 }
 
@@ -265,6 +273,14 @@ function group_view(array $members, array $user): array
     $came = array_values(array_filter($views, fn($v) => $v['attended']));
     $lastCame = $came ? $came[count($came) - 1] : null;
     $regions = array_values(array_unique(array_filter(array_column($views, 'region'))));
+    $hoods = array_values(array_unique(array_filter(array_column($views, 'neighborhood'))));
+    // Kartta açılan adres(ler): her farklı adres için {firma/şube unvanı, adres}
+    $places = [];
+    foreach ($views as $v) {
+        if ($v['address'] !== null && $v['address'] !== '' && !isset($places[$v['address']])) {
+            $places[$v['address']] = ['firm' => $v['full_name'], 'address' => $v['address']];
+        }
+    }
     $groups = array_values(array_unique(array_filter(array_column($views, 'group_name'))));
     $refs = array_values(array_filter(array_column($views, 'ref_no')));
     $phones = array_values(array_unique(array_filter(array_column($views, 'phone'))));
@@ -278,6 +294,9 @@ function group_view(array $members, array $user): array
         'authority'        => $first['authority'],
         'region'           => $regions[0] ?? null,
         'regions'          => $regions,
+        'neighborhood'     => $hoods[0] ?? null,
+        'neighborhoods'    => $hoods,
+        'places'           => array_values($places),
         'group_name'       => implode(', ', $groups) ?: null,
         'ref_no'           => count($refs) > 1 ? count($refs) . ' sicil' : ($refs[0] ?? null),
         'phone'            => $phones[0] ?? null,
@@ -288,6 +307,7 @@ function group_view(array $members, array $user): array
         'mine'             => (bool) array_filter($came, fn($v) => $v['mine']),
         'can_unmark'       => (bool) array_filter($came, fn($v) => $v['can_unmark']),
         'stance'           => $first['stance'],
+        'transfer'         => $first['transfer'],
     ];
 }
 
@@ -440,6 +460,32 @@ function people_breakdown(array $user, string $column, ?int $eventId = null): ar
     ], $rows);
 }
 
+/**
+ * Onay ekranındaki filtre çiplerinin sayıları (arka plan yenilemesinde yerinde güncellenir).
+ * app.php'deki ilk çizimle AYNI kaynaklar: people_breakdown + stance_breakdown (firma bazında).
+ * @return array{region:array<string,int>, group:array<string,int>, stance:array<string,int>} değer => firma sayısı
+ */
+function facet_totals(array $user): array
+{
+    $out = ['region' => [], 'group' => [], 'stance' => []];
+    if (can('view_all', $user) || ($user['region'] ?? '') === '') {
+        foreach (people_breakdown($user, 'region') as $b) {
+            $out['region'][$b['value']] = $b['total'];
+        }
+    }
+    foreach (people_breakdown($user, 'group_name') as $b) {
+        $out['group'][$b['value']] = $b['total'];
+    }
+    if (can('stance', $user)) {
+        $sb = stance_breakdown($user);
+        foreach (array_keys(stance_options()) as $key) {
+            $out['stance'][$key] = $sb[$key]['total'] ?? 0;
+        }
+        $out['stance'][NONE_VALUE] = $sb[NONE_VALUE]['total'] ?? 0;
+    }
+    return $out;
+}
+
 /* ---------- "Bizimle mi?" ---------- */
 
 /** @return array<string, array{0:string,1:string}> anahtar => [etiket, renk] */
@@ -475,11 +521,106 @@ function stance_from_text(mixed $text): ?string
     return null;
 }
 
+/* ---------- Transfer ---------- */
+
+/** Config'de transfer_options yoksa (eski config.php) kullanılan varsayılanlar. */
+const TRANSFER_DEFAULTS = [
+    'aliyoruz'  => ['Biz alıyoruz', 'success'],
+    'almiyoruz' => ['Almıyoruz', 'muted'],
+    'rakip'     => ['Rakip alıyor', 'danger'],
+    'belirsiz'  => ['Belirsiz', 'warning'],
+];
+
+/** @return array<string, array{0:string,1:string}> anahtar => [etiket, renk]; 'belirsiz' (= NULL) hep vardır */
+function transfer_options(): array
+{
+    $options = (array) config('transfer_options', TRANSFER_DEFAULTS);
+    if (!$options) {
+        $options = TRANSFER_DEFAULTS;
+    }
+    $options['belirsiz'] ??= TRANSFER_DEFAULTS['belirsiz'];
+    return $options;
+}
+
+/** @return array{value:?string,label:string,color:string} NULL = Belirsiz */
+function transfer_view(?string $value): array
+{
+    $opts = transfer_options();
+    if ($value !== null && $value !== 'belirsiz' && isset($opts[$value])) {
+        return ['value' => $value, 'label' => $opts[$value][0], 'color' => $opts[$value][1]];
+    }
+    return ['value' => null, 'label' => $opts['belirsiz'][0], 'color' => $opts['belirsiz'][1]];
+}
+
+/**
+ * Serbest metni ("Biz alıyoruz", "RAKİP ALIYOR", "aliyoruz") seçenek anahtarına çevirir.
+ * 'belirsiz' ve tanınmayan her şey null (= Belirsiz) olur.
+ */
+function transfer_from_text(mixed $text): ?string
+{
+    $k = search_key(clean_text($text, 64));
+    if ($k === '') {
+        return null;
+    }
+    foreach (transfer_options() as $key => [$label]) {
+        if ($key !== 'belirsiz' && ($k === search_key($key) || $k === search_key($label))) {
+            return $key;
+        }
+    }
+    return null;
+}
+
+/**
+ * Kişinin firma grubunun (kapsamdaki tüm kayıtlarının) transfer değerini değiştirir.
+ * @param ?string $value seçenek anahtarı; null / 'belirsiz' = temizle
+ * @return array{ok:bool, status:int, error?:string, person?:array}
+ */
+function set_transfer(array $user, int $personId, ?string $value): array
+{
+    if (!can('transfer', $user)) {
+        return ['ok' => false, 'status' => 403, 'error' => 'Yetkiniz yok.'];
+    }
+    if ($value === 'belirsiz') {
+        $value = null;
+    }
+    if ($value !== null && !isset(transfer_options()[$value])) {
+        return ['ok' => false, 'status' => 422, 'error' => 'Geçersiz seçenek.'];
+    }
+    $event = active_event();
+    if ($event === null) {
+        return ['ok' => false, 'status' => 409, 'error' => 'Aktif etkinlik yok.'];
+    }
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $members = lock_group($user, $personId); // grup kilitli: eşzamanlı GELDİ / stance / transfer sıraya girer
+        if ($members === null) {
+            $pdo->rollBack();
+            return ['ok' => false, 'status' => 404, 'error' => 'Kişi bulunamadı.'];
+        }
+        foreach ($members as $m) {
+            if ($m['transfer'] === $value) {
+                continue;
+            }
+            q('UPDATE people SET transfer = ? WHERE id = ?', [$value, $m['id']]);
+            q(
+                'INSERT INTO attendance_log (event_id, person_id, user_id, action, note, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())',
+                [$event['id'], $m['id'], $user['id'], 'transfer', $value, client_ip_bin()]
+            );
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return ['ok' => true, 'status' => 200, 'person' => group_view(find_group($user, $personId), $user)];
+}
+
 /**
  * Transaction İÇİNDE çağrılır: kişinin firma grubunun kapsamdaki TÜM satırlarını kilitler
  * (sadece değişecekleri değil). Böylece aynı gruba eşzamanlı GELDİ / Geri al / Bizimle mi?
  * istekleri sıraya girer, grup yarım kalmaz. Kişi kapsam dışıysa null.
- * @return ?list<array{id:int, attended_at:?string, attended_by:?int, stance:?string, in_window:int}>
+ * @return ?list<array{id:int, attended_at:?string, attended_by:?int, stance:?string, transfer:?string, in_window:int}>
  */
 function lock_group(array $user, int $personId): ?array
 {
@@ -490,7 +631,7 @@ function lock_group(array $user, int $personId): ?array
     }
     $window = (int) config('unmark_window_minutes', 5);
     $rows = q(
-        "SELECT p.id, p.attended_at, p.attended_by, p.stance,
+        "SELECT p.id, p.attended_at, p.attended_by, p.stance, p.transfer,
                 (p.attended_at >= UTC_TIMESTAMP() - INTERVAL $window MINUTE) AS in_window
          FROM people p WHERE p.firm_key = ? AND $scope ORDER BY p.id FOR UPDATE",
         [$key, ...$params]
@@ -683,6 +824,95 @@ function names_only(mixed $text): ?string
         }
     }
     return $names ? mb_substr(implode(', ', $names), 0, 255, 'UTF-8') : null;
+}
+
+/* ---------- Mahalle (adresten) ---------- */
+
+/** Türkçe küçük harf (İ -> i, I -> ı). Başlık düzeni için. */
+function tr_lower(string $s): string
+{
+    return mb_strtolower(strtr($s, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+}
+
+/** "BELDİBİ" / "ışıklar" -> "Beldibi" / "Işıklar" (her kelimenin ilk harfi büyük, Türkçe i/ı doğru). */
+function tr_title(string $s): string
+{
+    $words = preg_split('/(\s+|-)/u', $s, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [];
+    foreach ($words as $i => $w) {
+        $lower = tr_lower($w);
+        $words[$i] = tr_upper(mb_substr($lower, 0, 1, 'UTF-8')) . mb_substr($lower, 1, null, 'UTF-8');
+    }
+    return implode('', $words);
+}
+
+/**
+ * Adresten SADECE mahalle adını çıkarır: "BELDİBİ MAH. ATATÜRK CAD. NO:5 KEMER/ANTALYA" -> "Beldibi Mah.".
+ * "Mah", "Mah.", "MAH.", "Mahalle", "Mahallesi", "Mh." yazımlarını tanır; mahalle adı anahtar kelimeden
+ * ÖNCE (en çok 4 kelime; cadde/sokak/no/virgül/eğik çizgi/parantezde durur) ya da "Mahallesi: X" biçiminde
+ * SONRA gelebilir. Bulunamazsa null. Dönen değer dışında adres hiçbir yere yazılmaz.
+ */
+function extract_neighborhood(mixed $address): ?string
+{
+    $s = clean_text($address, 1000);
+    if ($s === null) {
+        return null;
+    }
+    $u = tr_upper($s);
+    $u = preg_replace('/\b(MAH|MH)\.(?=\p{L})/u', '$1. ', $u) ?? $u;          // "MAH.ATATÜRK" -> "MAH. ATATÜRK"
+    $u = preg_replace('/([,;\/()])/u', ' $1 ', $u) ?? $u;                      // ayırıcılar kendi sözcüğü olsun
+    $tokens = preg_split('/\s+/u', $u, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+    $stop = ['NO', 'NUMARA', 'CAD', 'CD', 'CADDE', 'CADDESİ', 'SOK', 'SK', 'SOKAK', 'SOKAĞI', 'BLV', 'BUL', 'BULVARI',
+             'KAT', 'DAİRE', 'D', 'APT', 'APARTMANI', 'BLOK', 'PK', 'KAPI'];
+    // Mahalle adının parçası olabilir mi? (ayırıcı, kısaltma noktası, sayı içeren no/kapı değil)
+    $part = function (string $t) use ($stop): bool {
+        if (preg_match('/^[,;\/()]$/u', $t) || in_array(rtrim($t, '.:'), $stop, true)) {
+            return false;
+        }
+        if (preg_match('/^\d+\.?$/u', $t)) {
+            return true; // "100. YIL" gibi sıra sayısı
+        }
+        return !preg_match('/[\d:]/u', $t) && !str_ends_with($t, '.') && preg_match('/\p{L}/u', $t) === 1;
+    };
+
+    foreach ($tokens as $i => $tok) {
+        if (!preg_match('/^(MAH|MH|MAHL|MAHALLE|MAHALLESİ|MAHALLESI)([.:]*)$/u', $tok, $m)) {
+            continue;
+        }
+        $name = [];
+        // 1) "BELDİBİ MAH." — kelimeden önceki sözcükler
+        for ($j = $i - 1; $j >= 0 && count($name) < 4 && $part($tokens[$j]); $j--) {
+            array_unshift($name, $tokens[$j]);
+        }
+        // 2) "MAHALLESİ: BELDİBİ" — önce ad yoksa ve kelime iki nokta ile bitiyorsa, sonraki sözcükler
+        if (!$name && str_contains($m[2], ':')) {
+            for ($j = $i + 1; $j < count($tokens) && count($name) < 3 && $part($tokens[$j]); $j++) {
+                $name[] = $tokens[$j];
+            }
+        }
+        if ($name) {
+            $title = tr_title(trim(implode(' ', $name), ' -'));
+            return $title !== '' && mb_strlen($title) <= 100 ? $title . ' Mah.' : null;
+        }
+    }
+    return null;
+}
+
+/**
+ * Zaten "mahalle" olarak ayrı sütunda gelen değeri düzenler: "BELDİBİ" / "Beldibi Mahallesi" -> "Beldibi Mah.".
+ * İçinde Mah anahtarı varsa extract_neighborhood kullanılır; çok uzun/boş değer null.
+ */
+function normalize_neighborhood(mixed $text): ?string
+{
+    $s = clean_text($text, 200);
+    if ($s === null) {
+        return null;
+    }
+    if (preg_match('/\b(MAH|MH|MAHALLE|MAHALLESİ|MAHALLESI)\b/u', tr_upper($s))) {
+        return extract_neighborhood($s);
+    }
+    $s = trim($s, " .,;:-");
+    return $s !== '' && mb_strlen($s) <= 60 && preg_match('/\p{L}/u', $s) ? tr_title($s) . ' Mah.' : null;
 }
 
 /* ---------- İşaretleme ---------- */

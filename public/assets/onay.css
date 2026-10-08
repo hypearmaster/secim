@@ -74,6 +74,7 @@
 .p-partial { width: 100%; font-size: .85rem; font-weight: 600; color: var(--warning); }
 .p-name { font-size: 1.05rem; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
 .p-firm { font-size: .9rem; color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; line-height: 1.35; }
+/* Bölge + mahalle satırı ve açılır adres: .place-* (app.css). Uzun metin ... ile kesilir, title'da tamamı. */
 .p-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .p-ref { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
@@ -81,6 +82,7 @@
 .p-stance { position: relative; cursor: pointer; min-height: 28px; padding: 4px 10px; }
 .p-stance::after { content: "▾"; margin-left: 2px; opacity: .7; }
 .p-stance-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.p-transfer { max-width: 100%; }
 .p-stance:focus-within { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
 
 .p-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

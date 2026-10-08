@@ -78,14 +78,19 @@ if (is_post()) {
         }
         $counts = array_count_values($mapping);
         $active = active_event();
-        $mode = in_array($_POST['mode'] ?? '', ['append', 'phones'], true) && $active ? $_POST['mode'] : 'new';
+        $mode = in_array($_POST['mode'] ?? '', ['append', 'update', 'phones'], true) && $active ? $_POST['mode'] : 'new';
+        if ($mode === 'phones') {
+            $mode = 'update'; // eski form değeri
+        }
         $eventName = clean_text($_POST['event_name'] ?? '', 160);
         $fixedGroup = clean_text($_POST['fixed_group'] ?? '', 120);
 
         $problem = match (true) {
-            $mode === 'phones' && (!isset($counts['ref_no']) || !isset($counts['phone']))
-                => 'Telefon güncellemek için bir sütun "Sicil / Referans No", bir sütun "Telefon" olmalı.',
-            $mode !== 'phones' && !isset($counts['full_name']) && !isset($counts['first_name']) => 'Bir sütunu "Unvan / Ad Soyad" (ya da "Ad") olarak seçin.',
+            $mode === 'update' && !isset($counts['ref_no']) && !isset($counts['full_name']) && !isset($counts['first_name'])
+                => 'Güncellemek için kayıtları eşleyecek bir sütun gerekli: "Sicil / Referans No" ya da "Unvan / Ad Soyad".',
+            $mode === 'update' && !isset($counts['phone']) && !isset($counts['address']) && !isset($counts['neighborhood']) && !isset($counts['transfer'])
+                => 'Güncellenecek bir sütun seçin: "Telefon", "Adres (sadece mahalle alınır)", "Mahalle" ya da "Transfer".',
+            $mode !== 'update' && !isset($counts['full_name']) && !isset($counts['first_name']) => 'Bir sütunu "Unvan / Ad Soyad" (ya da "Ad") olarak seçin.',
             ($counts['full_name'] ?? 0) > 1 => '"Unvan / Ad Soyad" sadece bir sütuna verilebilir.',
             $mode === 'new' && $eventName === null => 'Yeni liste için bir ad yazın.',
             default => null,
@@ -96,16 +101,20 @@ if (is_post()) {
         }
 
         $built = build_people($sheet['header'], $sheet['rows'], $mapping, $fixedGroup);
-        if ($mode === 'phones') {
-            // Kişi eklenmez: sadece aktif listedeki aynı sicilli kayıtların telefonu yazılır
-            $r = update_phones($active['id'], phone_rows($sheet['rows'], $mapping));
-            audit('import_phones', $imp['original'], ['liste' => $active['name'], 'güncellenen' => $r['updated'],
-                'zaten aynı' => $r['unchanged'], 'listede yok' => $r['not_found'], 'telefonsuz satır' => $r['no_phone']]);
+        if ($mode === 'update') {
+            // Kişi eklenmez: aktif listedeki kayıtlara (sicil, yoksa tam ad ile eşleşir) telefon / mahalle / transfer yazılır.
+            // Geldi işareti, Bizimle mi? vb. diğer alanlara dokunulmaz.
+            $r = update_people_fields($active['id'], enrich_rows($sheet['rows'], $mapping));
+            audit('import_update', $imp['original'], ['liste' => $active['name'], 'güncellenen kayıt satırı' => $r['updated'],
+                'zaten aynı' => $r['unchanged'], 'listede yok' => $r['not_found'], 'birden çok firma (atlandı)' => $r['ambiguous'],
+                'yazılacak değeri olmayan satır' => $r['nothing'],
+                'telefon' => $r['phones'], 'adres' => $r['addresses'], 'mahalle' => $r['neighborhoods'], 'transfer' => $r['transfers']]);
             drop_import($dir);
-            flash('success', "{$r['updated']} kaydın telefonu güncellendi"
+            flash('success', "{$r['updated']} satırın kaydı güncellendi (telefon {$r['phones']}, adres {$r['addresses']}, mahalle {$r['neighborhoods']}, transfer {$r['transfers']})"
                 . ($r['unchanged'] ? ", {$r['unchanged']} zaten aynıydı" : '')
-                . ($r['not_found'] ? ", {$r['not_found']} sicil listede bulunamadı" : '')
-                . ($r['no_phone'] ? ", {$r['no_phone']} satırda telefon yok" : '') . '.');
+                . ($r['not_found'] ? ", {$r['not_found']} satır listede bulunamadı" : '')
+                . ($r['ambiguous'] ? ", {$r['ambiguous']} satır aynı adlı birden çok firma olduğu için atlandı" : '')
+                . ($r['nothing'] ? ", {$r['nothing']} satırda yazılacak değer yok" : '') . '.');
             redirect('admin/index.php');
         }
         if (!$built['people']) {
@@ -211,7 +220,7 @@ render_header('Liste yükle', 'import', ['admin.css']);
 
     <section class="card">
       <h2>Sütunlar</h2>
-      <p class="muted">E-posta, adres, ortaklar gibi kişisel bilgiler <strong>alınmaz</strong>. Telefon (Gsm/Tel) sadece kartta “ara” simgesi için alınır; ikisi de varsa cep numarası kullanılır. Yetkili sütunundaki doğum tarihi ve yeri otomatik silinir.</p>
+      <p class="muted">E-posta, ortaklar gibi kişisel bilgiler <strong>alınmaz</strong>. <strong>Adres</strong> sütunu tam haliyle saklanır (kartta açılır, “Yol tarifi” butonu) ve ayrıca mahalle adı çıkarılır (örn. “Beldibi Mah.”). Telefon (Gsm/Tel) sadece kartta “ara” simgesi için alınır; ikisi de varsa cep numarası kullanılır. Yetkili sütunundaki doğum tarihi ve yeri otomatik silinir.</p>
       <div class="map-grid">
         <?php foreach ($sheet['header'] as $i => $h): ?>
           <label class="field map-row">
@@ -221,11 +230,16 @@ render_header('Liste yükle', 'import', ['admin.css']);
               <option value="phone"<?= $mapping[$i] === 'phone' ? ' selected' : '' ?>><?= e(IMPORT_FIELDS['phone']) ?></option>
               <option value="ignore"<?= $mapping[$i] === 'ignore' ? ' selected' : '' ?>><?= e(IMPORT_FIELDS['ignore']) ?></option>
             </select>
+            <?php elseif (is_address_header($h)): ?>
+            <select class="input" name="map[<?= e($i) ?>]">
+              <option value="address"<?= $mapping[$i] === 'address' ? ' selected' : '' ?>><?= e(IMPORT_FIELDS['address']) ?></option>
+              <option value="ignore"<?= $mapping[$i] === 'ignore' ? ' selected' : '' ?>><?= e(IMPORT_FIELDS['ignore']) ?></option>
+            </select>
             <?php elseif (is_personal_header($h)): ?>
               <select class="input" disabled><option>Alınmaz — kişisel veri</option></select>
             <?php else: ?>
             <select class="input" name="map[<?= e($i) ?>]">
-              <?php foreach (IMPORT_FIELDS as $k => $label): if ($k === 'phone') continue; ?>
+              <?php foreach (IMPORT_FIELDS as $k => $label): if (in_array($k, ['phone', 'address'], true)) continue; ?>
                 <option value="<?= e($k) ?>"<?= $mapping[$i] === $k ? ' selected' : '' ?>><?= e($label) ?></option>
               <?php endforeach; ?>
             </select>
@@ -251,6 +265,9 @@ render_header('Liste yükle', 'import', ['admin.css']);
             <tr><?php foreach ($shown as $i): ?><td><?= e(match ($mapping[$i]) {
                 'authority' => names_only($row[$i] ?? null),
                 'phone' => phone_display(normalize_phone($row[$i] ?? null)),
+                'address' => clean_text($row[$i] ?? null, 500) . (extract_neighborhood($row[$i] ?? null) ? ' → ' . extract_neighborhood($row[$i]) : ''),
+                'neighborhood' => normalize_neighborhood($row[$i] ?? null) ?? '—',
+                'transfer' => transfer_view(transfer_from_text($row[$i] ?? null))['label'],
                 default => $row[$i] ?? '',
             }) ?></td><?php endforeach; ?></tr>
           <?php endforeach; ?>
@@ -264,7 +281,7 @@ render_header('Liste yükle', 'import', ['admin.css']);
       <?php if ($active): ?>
         <label class="radio"><input type="radio" name="mode" value="new" checked> <span><strong>Yeni liste başlat</strong> — “<?= e($active['name']) ?>” arşive alınır, silinmez; işaretleri korunur.</span></label>
         <label class="radio"><input type="radio" name="mode" value="append"> <span><strong>Aktif listeye ekle</strong> — “<?= e($active['name']) ?>” listesine eklenir (başka bir grubun dosyası gibi).</span></label>
-        <label class="radio"><input type="radio" name="mode" value="phones"> <span><strong>Sadece telefonları güncelle</strong> — kimse eklenmez; “<?= e($active['name']) ?>” listesinde sicil no’su tutan kayıtlara dosyadaki telefon yazılır. İşaretler değişmez.</span></label>
+        <label class="radio"><input type="radio" name="mode" value="update"> <span><strong>Sadece mevcut kayıtları güncelle (telefon / adres / mahalle / transfer)</strong> — kimse eklenmez; “<?= e($active['name']) ?>” listesindeki kayıtlara sicil no (yoksa tam ad) ile eşleşip dosyadaki telefon, adres (+ mahalle) ve transfer yazılır. Geldi işaretleri ve “Bizimle mi?” değişmez; boş hücre var olanı silmez.</span></label>
       <?php else: ?>
         <input type="hidden" name="mode" value="new">
       <?php endif; ?>

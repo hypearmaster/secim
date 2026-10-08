@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 require APP_ROOT . '/src/votes.php';
+require APP_ROOT . '/src/dashboard.php';
 
 $user = require_perm('dashboard');
 $event = active_event();
@@ -18,55 +19,70 @@ if (!$event) {
 }
 
 $eventId = (int) $event['id'];
+$d = dashboard_data($user, $eventId);
+$stats = $d['stats'];
 
-$stats = scope_stats($user);
-$regionBreakdown = people_breakdown($user, 'region', $eventId);
-$groupBreakdown = people_breakdown($user, 'group_name', $eventId);
-$stanceBreakdown = [];
-if (can('stance', $user)) {
-    // Onay çipleriyle AYNI mantık (stance_breakdown): firma bazlı, firma başına tek stance, all-came
-    $sb = stance_breakdown($user, $eventId);
-    $order = [...array_keys(stance_options()), NONE_VALUE];
-    foreach ($sb as $key => $v) { // config'de olmayan (silinmiş) değerler de sona eklensin
-        if (!in_array($key, $order, true)) {
-            $order[] = $key;
-        }
-    }
-    foreach ($order as $key) {
-        if (!isset($sb[$key])) {
-            continue;
-        }
-        $sv = stance_view($key === NONE_VALUE ? null : $key);
-        $stanceBreakdown[] = ['label' => $sv['label'], 'color' => $sv['color'], 'total' => $sb[$key]['total'], 'came' => $sb[$key]['came']];
-    }
-}
+/** Kırılım tablosu satırı (ilk çizim; arka plan yenilemesi aynı yapıyı dashboard-live.js ile üretir). */
+function dash_row(array $r): void
+{ ?>
+                <tr>
+                    <td><?= e($r['label']) ?></td>
+                    <td class="num"><?= e($r['total']) ?></td>
+                    <td class="num"><?= e($r['came']) ?></td>
+                    <td class="num"><?= e($r['rate']) ?>%</td>
+                    <td class="col-bar">
+                        <div class="progress" style="width: 100%; max-width: 200px;">
+                            <span style="width: <?= e($r['rate']) ?>%"></span>
+                        </div>
+                    </td>
+                </tr>
+<?php }
 
-$logSql = "SELECT al.*, p.full_name AS person_name, p.authority AS person_authority, p.region, p.stance AS person_stance, u.username, u.full_name AS user_name
-           FROM attendance_log al
-           JOIN people p ON p.id = al.person_id
-           JOIN users u ON u.id = al.user_id
-           WHERE al.event_id = ?
-           ORDER BY al.created_at DESC
-           LIMIT 10";
-$recentLogs = q($logSql, [$eventId])->fetchAll();
+/** İlçe / Grup kırılımı kartı. */
+function dash_breakdown(string $key, string $title, string $first, array $rows): void
+{ ?>
+    <section class="card">
+        <h2><?= e($title) ?></h2>
+        <?php if ($rows): ?>
+        <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th><?= e($first) ?></th>
+                    <th class="num">Toplam</th>
+                    <th class="num">Gelen</th>
+                    <th class="num">Oran</th>
+                    <th class="col-bar">Grafik</th>
+                </tr>
+            </thead>
+            <tbody data-dash="<?= e($key) ?>">
+            <?php foreach ($rows as $r) dash_row($r); ?>
+            </tbody>
+        </table>
+        </div>
+        <?php else: ?>
+        <p class="muted">Veri yok.</p>
+        <?php endif; ?>
+    </section>
+<?php }
 ?>
-<main class="container">
+<main class="container" id="dash" data-api="<?= e(url('api/dashboard.php')) ?>" data-event="<?= e($eventId) ?>">
 <div class="stats">
     <div class="stat">
         <div class="stat-label">Toplam</div>
-        <div class="stat-value"><?= e($stats['total']) ?></div>
+        <div class="stat-value" data-stat="total"><?= e($stats['total']) ?></div>
     </div>
     <div class="stat">
         <div class="stat-label">Gelen</div>
-        <div class="stat-value"><?= e($stats['came']) ?></div>
+        <div class="stat-value" data-stat="came"><?= e($stats['came']) ?></div>
     </div>
     <div class="stat">
         <div class="stat-label">Bekleyen</div>
-        <div class="stat-value"><?= e($stats['total'] - $stats['came']) ?></div>
+        <div class="stat-value" data-stat="pending"><?= e($stats['pending']) ?></div>
     </div>
     <div class="stat">
         <div class="stat-label">Oran</div>
-        <div class="stat-value"><?= $stats['total'] ? round($stats['came'] / $stats['total'] * 100) : 0 ?>%</div>
+        <div class="stat-value"><span data-stat="rate"><?= e($stats['rate']) ?></span>%</div>
     </div>
 </div>
 
@@ -84,91 +100,22 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
         <div id="vote-share-bar" class="vote-share-bar" aria-hidden="true"></div>
         <div class="vote-summary-footer"><span class="muted" id="vote-updated">Son kontrol bekleniyor</span><span class="muted">Saniyelik takip · Sayım devam ediyor</span></div>
     </section>
-    <section class="card">
-        <h2>İlçe Kırılımı</h2>
-        <?php if ($regionBreakdown): ?>
-        <div class="table-wrap">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>İlçe</th>
-                    <th class="num">Toplam</th>
-                    <th class="num">Gelen</th>
-                    <th class="num">Oran</th>
-                    <th class="col-bar">Grafik</th>
-                </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($regionBreakdown as $rb): ?>
-                <tr>
-                    <td><?= e($rb['label'] ?? '—') ?></td>
-                    <td class="num"><?= e($rb['total']) ?></td>
-                    <td class="num"><?= e($rb['came']) ?></td>
-                    <td class="num"><?= $rb['total'] ? round($rb['came'] / $rb['total'] * 100) : 0 ?>%</td>
-                    <td class="col-bar">
-                        <div class="progress" style="width: 100%; max-width: 200px;">
-                            <span style="width: <?= $rb['total'] ? round($rb['came'] / $rb['total'] * 100) : 0 ?>%"></span>
-                        </div>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-        </div>
-        <?php else: ?>
-        <p class="muted">Veri yok.</p>
-        <?php endif; ?>
-    </section>
+    <?php dash_breakdown('region', 'İlçe Kırılımı', 'İlçe', $d['region']); ?>
+    <?php dash_breakdown('group', 'Grup Kırılımı', 'Grup', $d['group']); ?>
 
-    <section class="card">
-        <h2>Grup Kırılımı</h2>
-        <?php if ($groupBreakdown): ?>
-        <div class="table-wrap">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Grup</th>
-                    <th class="num">Toplam</th>
-                    <th class="num">Gelen</th>
-                    <th class="num">Oran</th>
-                    <th class="col-bar">Grafik</th>
-                </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($groupBreakdown as $gb): ?>
-                <tr>
-                    <td><?= e($gb['label'] ?? '—') ?></td>
-                    <td class="num"><?= e($gb['total']) ?></td>
-                    <td class="num"><?= e($gb['came']) ?></td>
-                    <td class="num"><?= $gb['total'] ? round($gb['came'] / $gb['total'] * 100) : 0 ?>%</td>
-                    <td class="col-bar">
-                        <div class="progress" style="width: 100%; max-width: 200px;">
-                            <span style="width: <?= $gb['total'] ? round($gb['came'] / $gb['total'] * 100) : 0 ?>%"></span>
-                        </div>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-        </div>
-        <?php else: ?>
-        <p class="muted">Veri yok.</p>
-        <?php endif; ?>
-    </section>
-
-    <?php if ($stanceBreakdown): ?>
+    <?php if ($d['stance']): ?>
     <section class="card">
         <h2>Bizimle mi?</h2>
         <div class="table-wrap">
         <table class="table">
             <thead><tr><th>Durum</th><th class="num">Toplam</th><th class="num">Gelen</th><th class="num">Oran</th></tr></thead>
-            <tbody>
-            <?php foreach ($stanceBreakdown as $sb): ?>
+            <tbody data-dash="stance">
+            <?php foreach ($d['stance'] as $sb): ?>
                 <tr>
                     <td><span class="badge badge-<?= e($sb['color']) ?>"><?= e($sb['label']) ?></span></td>
                     <td class="num"><?= e($sb['total']) ?></td>
                     <td class="num"><?= e($sb['came']) ?></td>
-                    <td class="num"><?= $sb['total'] ? round($sb['came'] / $sb['total'] * 100) : 0 ?>%</td>
+                    <td class="num"><?= e($sb['rate']) ?>%</td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -179,7 +126,7 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
 
     <section class="card">
         <h2>Son 10 İşlem</h2>
-        <?php if ($recentLogs): ?>
+        <?php if ($d['logs']): ?>
         <div class="table-wrap">
         <table class="table">
             <thead>
@@ -191,19 +138,14 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
                     <th>Kullanıcı</th>
                 </tr>
             </thead>
-            <tbody>
-            <?php $bizimle = can('stance', $user) ? (string) config('supporter_stance', 'bizimle') : null; ?>
-            <?php foreach ($recentLogs as $log): ?>
-                <tr<?= $bizimle !== null && $log['person_stance'] === 'karsi' ? ' class="row-rakip"' : ($bizimle !== null && $log['person_stance'] === $bizimle ? ' class="row-bizimle"' : '') ?>>
-                    <td><?= e(fmt_datetime($log['created_at'])) ?></td>
-                    <td>
-                        <span class="badge badge-<?= $log['action'] === 'mark' ? 'success' : ($log['action'] === 'unmark' ? 'danger' : 'warning') ?>">
-                            <?= e($log['action'] === 'mark' ? 'Geldi' : ($log['action'] === 'unmark' ? 'Geri alındı' : 'Durum değiştirildi')) ?>
-                        </span>
-                    </td>
-                    <td><?= e($log['person_authority'] ?: $log['person_name']) ?></td>
-                    <td><?= e($log['region'] ?? '—') ?></td>
-                    <td><?= e($log['user_name']) ?></td>
+            <tbody data-dash="logs">
+            <?php foreach ($d['logs'] as $log): ?>
+                <tr<?= $log['row'] !== '' ? ' class="' . e($log['row']) . '"' : '' ?>>
+                    <td><?= e($log['time']) ?></td>
+                    <td><span class="badge badge-<?= e($log['badge']) ?>"><?= e($log['label']) ?></span></td>
+                    <td><?= e($log['name']) ?></td>
+                    <td><?= e($log['region']) ?></td>
+                    <td><?= e($log['user']) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -215,17 +157,5 @@ $recentLogs = q($logSql, [$eventId])->fetchAll();
     </section>
 </div>
 </main>
-
-<script>
-(function () {
-    // 60 sn'de bir tazele — sadece kullanıcı hâlâ paneldeyse (başka sayfaya geçtiyse dokunma)
-    var stamp = Date.now();
-    document.body.setAttribute('data-dashboard', stamp);
-    setTimeout(function () {
-        if (document.body.getAttribute('data-dashboard') !== String(stamp)) return;
-        window.secimNav ? window.secimNav.reload() : window.location.reload();
-    }, 60000);
-})();
-</script>
 <?php
-render_footer(['dashboard-votes.js']);
+render_footer(['live.js', 'dashboard-live.js', 'dashboard-votes.js']);
