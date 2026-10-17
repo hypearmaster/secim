@@ -17,6 +17,7 @@ function render_header(string $title, string $active = '', array $extraCss = [])
     if ($user) {
         if (can('dashboard', $user)) $nav['dashboard'] = ['admin/index.php', 'Panel'];
         $nav['app'] = ['app.php', 'Onay'];
+        if (can('team', $user)) $nav['panel'] = ['panel.php', 'Panelim'];
         if (can('supporters', $user)) $nav['supporters'] = ['admin/supporters.php', 'Bizimkiler'];
         if (can('gift_mark', $user)) $nav['hediye'] = ['hediye.php', 'Hediye'];
         if (can('gift_manage', $user)) $nav['gifts'] = ['admin/gifts.php', 'Hediye listesi'];

@@ -3,8 +3,8 @@ declare(strict_types=1);
 require __DIR__ . '/../../src/bootstrap.php';
 require APP_ROOT . '/src/votes.php';
 
-// Oy sayacı. GET: güncel durum. POST action=add|undo|reset (+ option), _csrf / X-CSRF-Token
-$user = require_perm('vote');
+// Oy sayacı. GET: güncel durum (vote_view: onaycı da görür). POST action=add|undo|reset (+ option), _csrf / X-CSRF-Token (vote)
+$user = require_perm(is_post() ? 'vote' : 'vote_view');
 $event = active_event();
 
 if (!is_post()) {

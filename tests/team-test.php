@@ -49,6 +49,7 @@ foreach ([['a', 'onayci', 'Merkez'], ['b', 'onayci', 'Kemer'], ['c', 'onayci', n
 $events = [];
 register_shutdown_function(function () use (&$events, $users, $prev) {
     foreach ($events as $ev) {
+        q('DELETE FROM attendance_log WHERE event_id = ?', [$ev]);
         q('DELETE FROM team_members WHERE event_id = ?', [$ev]);
         q('DELETE FROM people WHERE event_id = ?', [$ev]);
         q('DELETE FROM events WHERE id = ?', [$ev]);
@@ -104,6 +105,20 @@ check('a çipleri: Benimkiler ilk, 0', $bd[0]['label'] === 'Benimkiler' && $bd[0
 check('a çipleri: C = 2, Sahipsiz = 1', ($byVal[(string) $c['id']] ?? -1) === 2 && ($byVal[NONE_VALUE] ?? -1) === 1, json_encode($byVal));
 check('facet_totals owner = team_breakdown', facet_totals($a)['owner'] == $byVal);
 check('geçersiz owner hiçbir şey dönmez', search_people($c, ['owner' => 'abc'])['total'] === 0);
+
+// 3b) Panelim: kendi takımı, firma bazında; GELDİ sonrası listeler ayrışır
+$pd = my_panel_data($c);
+check('Panelim: c takımı 2, gelen 0', $pd['stats']['total'] === 2 && $pd['stats']['came'] === 0 && count($pd['pending']) === 2, json_encode($pd['stats']));
+mark_person($c, $f2);
+$pd = my_panel_data($c);
+check('Panelim: GELDİ sonrası 1 gelen / 1 gelmeyen', $pd['stats']['came'] === 1 && count($pd['came']) === 1 && count($pd['pending']) === 1
+    && $pd['came'][0]['id'] === $f2, json_encode($pd['stats']));
+mark_person($b, $f1k); // Kemer şubesi geldi → f1 kısmi: Gelmeyenler'de "1/2", Gelenler'de değil
+$pd = my_panel_data($c);
+check('Panelim: kısmi firma sadece gelmeyenlerde', $pd['stats']['came'] === 1 && count($pd['came']) === 1 && count($pd['pending']) === 1
+    && $pd['pending'][0]['partial'] === '1/2' && !$pd['truncated'], json_encode($pd['pending']));
+check('Panelim: a (Merkez) takımı boş', my_panel_data($a)['stats']['total'] === 0);
+check('oy: onaycı görür (vote_view) ama basamaz (vote)', can('vote_view', $a) && !can('vote', $a));
 
 // 4) pasife alınca üyelik silinir, yer açılır
 team_add($a, $f1m); // f1: c + a = dolu

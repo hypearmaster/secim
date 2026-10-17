@@ -205,3 +205,68 @@ function team_clear_user(int $userId): int
 {
     return q('DELETE FROM team_members WHERE user_id = ?', [$userId])->rowCount();
 }
+
+/**
+ * "Panelim" verisi — kullanıcının KENDİ takımı (firma bazında, kapsamında). Sayfanın ilk çizimi ve
+ * arka plan yenilemesi (api/panel.php) aynı kaynaktan okur.
+ * @return array{stats:array{total:int,came:int,pending:int,rate:int}, region:list<array>, pending:list<array>,
+ *               came:list<array>, truncated:bool}
+ */
+function my_panel_data(array $user): array
+{
+    $f = ['owner' => (string) $user['id']];
+    [$where, $params] = people_where($user, $f);
+    $r = q("SELECT COUNT(*) AS total, COALESCE(SUM(all_came), 0) AS came FROM (
+                SELECT MIN(p.attended_at IS NOT NULL) AS all_came FROM people p WHERE $where GROUP BY p.firm_key
+            ) t", $params)->fetch();
+    $total = (int) $r['total'];
+    $came = (int) $r['came'];
+    $rate = fn(int $t, int $c): int => $t ? (int) round($c / $t * 100) : 0;
+
+    $region = [];
+    foreach (q("SELECT v, COUNT(*) AS total, COALESCE(SUM(all_came), 0) AS came FROM (
+                    SELECT NULLIF(p.region, '') AS v, p.firm_key, MIN(p.attended_at IS NOT NULL) AS all_came
+                    FROM people p WHERE $where GROUP BY v, p.firm_key
+                ) t GROUP BY v ORDER BY v IS NULL, v", $params)->fetchAll() as $b) {
+        $region[] = ['label' => $b['v'] ?? 'Bölgesiz', 'total' => (int) $b['total'], 'came' => (int) $b['came'],
+                     'rate' => $rate((int) $b['total'], (int) $b['came'])];
+    }
+
+    // Kişi listeleri: her biri en fazla 200 firma (fazlası onay ekranında "Benimkiler" filtresiyle).
+    // Rozetler listeyi değil yukarıdaki doğru sayıları (stats) gösterir.
+    // "pending" filtresi = en az bir şubesi gelmemiş firma (= tam gelmemiş); "came" kısmi gelenleri de verir → attended ile süz.
+    $limit = 200;
+    $slim = fn(array $p): array => [
+        'id'         => $p['id'],
+        'name'       => $p['authority'] ?: $p['full_name'],
+        'firm'       => $p['authority'] ? $p['full_name'] : null,
+        'region'     => $p['region'],
+        'phone'      => $p['phone'],
+        'phone_text' => $p['phone_text'],
+        'time'       => $p['attended_time'],
+        'by'         => $p['attended_by_name'],
+        'partial'    => $p['came_count'] > 0 && !$p['attended'] ? $p['came_count'] . '/' . $p['count'] : null,
+    ];
+    $pending = array_map($slim, search_people($user, $f + ['status' => 'pending'], $limit)['items']);
+    $cameList = [];
+    // kısmi gelenler "came" sorgusunda da çıkar; 200 tam gelen dolana kadar sayfa sayfa
+    for ($offset = 0; count($cameList) < min($limit, $came); $offset += $limit) {
+        $page = search_people($user, $f + ['status' => 'came'], $limit, $offset)['items'];
+        foreach ($page as $p) {
+            if ($p['attended'] && count($cameList) < $limit) {
+                $cameList[] = $slim($p);
+            }
+        }
+        if (count($page) < $limit) {
+            break;
+        }
+    }
+
+    return [
+        'stats'     => ['total' => $total, 'came' => $came, 'pending' => $total - $came, 'rate' => $rate($total, $came)],
+        'region'    => $region,
+        'pending'   => $pending,
+        'came'      => $cameList,
+        'truncated' => count($pending) < $total - $came || count($cameList) < $came,
+    ];
+}

@@ -26,6 +26,7 @@ const PERMISSIONS = [
     'call'          => ['admin', 'yonetici', 'onayci'], // kartta telefon simgesi (numara sadece buna gönderilir)
     'vote'          => ['admin', 'yonetici'],           // oy sayacı: görür ve sayar
     'vote_reset'    => ['admin', 'yonetici'],             // oy sayacını sıfırlar
+    'vote_view'     => ['admin', 'yonetici', 'onayci'], // oy sonuçlarını SADECE görür (Panelim; basamaz)
     'gift_mark'     => ['admin', 'yonetici', 'onayci'], // hediye verdik/vermedik işaretler
     'gift_manage'   => ['admin'],                        // hediye listesi yükler/siler
     'add_person'    => ['admin', 'yonetici'],           // listeye elle yeni kişi ekler

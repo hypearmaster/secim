@@ -75,6 +75,6 @@
   function visible() { if (document.visibilityState === 'visible') refresh(); }
   window.__dashboardVotes = stop;
   document.addEventListener('visibilitychange', visible);
-  timer = setInterval(refresh, 1000);
+  timer = setInterval(refresh, Math.max(1000, parseInt(root.getAttribute('data-interval'), 10) || 1000));
   refresh();
 })();

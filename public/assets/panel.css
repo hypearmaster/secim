@@ -1,0 +1,17 @@
+/* "Panelim": onaycının kendi takımı. Ortak bileşenler app.css / admin.css'te. */
+.mp-head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.mp-head-row h1 { margin: 4px 0 0; font-size: 1.3rem; }
+.mp-head-row .btn { min-height: 44px; }
+.mp-ok { color: var(--success); }
+.mp-wait { color: var(--warning); }
+.mp-progress { margin-top: 14px; }
+.mp-empty { margin: 14px 0 0; }
+.mp-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.mp-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-height: 56px; }
+.mp-item.is-came { background: var(--success-soft); border-color: transparent; }
+.mp-main { flex: 1; min-width: 0; }
+.mp-name { font-weight: 700; overflow-wrap: anywhere; }
+.mp-sub { font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
+.mp-side { font-size: .85rem; color: var(--success); font-weight: 700; white-space: nowrap; text-align: right; }
+.mp-call { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius); border: 2px solid var(--primary); color: var(--primary); }
+.mp-call svg { width: 22px; height: 22px; fill: currentColor; }
