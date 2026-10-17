@@ -1,4 +1,4 @@
-// Onay ekranı: arama, filtre, GELDİ / Geri al, "Bizimle mi?", Transfer, telefonla ara, yeni kişi ekle.
+// Onay ekranı: arama, filtre, GELDİ / Geri al, "Bizimle mi?", Transfer, takım (kimin adamı), telefonla ara, yeni kişi ekle.
 // Kural: kişi verisi DOM'a sadece textContent ile girer (innerHTML yok).
 // Canlı yenileme: sayfa/liste baştan çizilmez; 10 sn'de bir arka planda veri çekilir (sekme görünürken),
 // sadece değişen kartlar/sayılar yerinde güncellenir (live.js). Kaydırma, arama kutusu, odak bozulmaz.
@@ -25,7 +25,7 @@
   };
 
   var POLL_MS = 10000;
-  var state = { q: '', status: 'all', region: '', group: '', stance: '', page: 1 };
+  var state = { q: '', status: 'all', region: '', group: '', stance: '', owner: '', page: 1 };
   var controller = null;
   var debounce = null;
   var loading = false;   // liste (baştan) yükleniyor: arka plan yenilemesi beklesin
@@ -233,6 +233,7 @@
     if (cfg.canStance) tags.appendChild(stanceControl(p));
     if (cfg.canTransfer) tags.appendChild(transferControl(p));
     main.appendChild(tags);
+    if (p.team) main.appendChild(teamControl(p));
     c.appendChild(main);
 
     var act = el('div', 'p-action');
@@ -325,6 +326,64 @@
       });
   }
 
+  // Takım satırı: sahip rozetleri (yönetici başkasınınkini ✕ ile çıkarır) + "Takımıma al / çıkar"
+  function teamControl(p) {
+    var t = p.team;
+    var row = el('div', 'p-team');
+    row.appendChild(el('span', 'p-team-label', 'Takım ' + t.members.length + '/' + t.max));
+    t.members.forEach(function (m) {
+      var name = m.mine ? 'Siz' : m.name;
+      if (!m.mine && cfg.canTeamManage) {
+        var x = el('button', 'badge p-owner p-owner-x', name + ' ✕');
+        x.type = 'button';
+        x.setAttribute('aria-label', m.name + ' takımından çıkar');
+        x.addEventListener('click', function () {
+          if (window.confirm(displayName(p) + ', ' + m.name + ' takımından çıkarılsın mı?')) teamAction(p, 'remove', m.id, x);
+        });
+        row.appendChild(x);
+      } else {
+        row.appendChild(el('span', 'badge p-owner' + (m.mine ? ' is-mine' : ''), name));
+      }
+    });
+    var b;
+    if (t.mine) {
+      b = el('button', 'btn btn-sm btn-ghost p-team-btn', 'Takımımdan çıkar');
+      b.addEventListener('click', function () {
+        if (window.confirm(displayName(p) + ' takımınızdan çıkarılsın mı?')) teamAction(p, 'remove', null, b);
+      });
+    } else if (t.full) {
+      b = el('button', 'btn btn-sm p-team-btn', 'Takım dolu');
+      b.disabled = true;
+      b.title = 'Biri çıkarmadan eklenemez';
+    } else {
+      b = el('button', 'btn btn-sm btn-primary p-team-btn', '+ Takımıma al');
+      b.addEventListener('click', function () { teamAction(p, 'add', null, b); });
+    }
+    b.type = 'button';
+    row.appendChild(b);
+    return row;
+  }
+
+  function teamAction(p, action, ownerId, btn) {
+    btn.disabled = true;
+    var data = { person_id: p.id, action: action };
+    if (ownerId) data.user_id = ownerId;
+    post(cfg.api.team, data)
+      .then(function (res) {
+        if (res.person) replaceCard(res.person);
+        if (res.ok) toast(action === 'add' ? '✓ Takımınıza alındı: ' + displayName(res.person) : 'Takımdan çıkarıldı', 'success');
+        else {
+          toast(res.error || 'İşlem yapılamadı', res.httpStatus === 409 ? 'warning' : 'error');
+          if (!res.person) btn.disabled = false;
+        }
+      })
+      .catch(function (err) {
+        if (err.message === 'auth') return;
+        btn.disabled = false;
+        toast('Bağlantı yok, tekrar deneyin', 'error');
+      });
+  }
+
   /* ---------- arama / liste ---------- */
 
   function load(reset) {
@@ -335,7 +394,7 @@
     loading = true;
     var params = new URLSearchParams({
       q: state.q, status: state.status, region: state.region,
-      group: state.group, stance: state.stance, page: state.page
+      group: state.group, stance: state.stance, owner: state.owner, page: state.page
     });
     root.classList.add('is-loading');
     els.more.disabled = true;
@@ -389,6 +448,27 @@
     });
   }
 
+  // "Kimin adamı" çip satırı: başka biri ilk kez takım kurduysa/takımı boşaldıysa çipleri yeniden kur
+  function applyOwners(list) {
+    var row = document.querySelector('.chips[data-filter="owner"]');
+    if (!row || !list) return;
+    var have = Array.prototype.map.call(row.querySelectorAll('.chip'), function (c) { return c.getAttribute('data-value'); });
+    var want = list.map(function (o) { return String(o.value); });
+    if (have.join('|') === want.join('|')) return; // sayılar applyFacets'te
+    // Seçili sahip listeden düştüyse (takımı boşaldı) çipi korunur: filtre kendiliğinden kalkmasın
+    var keep = state.owner && want.indexOf(state.owner) === -1 ? row.querySelector('.chip.is-active') : null;
+    row.querySelectorAll('.chip').forEach(function (c) { if (c !== keep) c.remove(); });
+    list.forEach(function (o) {
+      var on = String(o.value) === state.owner;
+      var b = el('button', 'chip' + (on ? ' is-active' : ''), o.label + ' ');
+      b.type = 'button';
+      b.setAttribute('data-value', String(o.value));
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.appendChild(el('span', 'chip-count', o.total));
+      row.insertBefore(b, keep);
+    });
+  }
+
   function poll() {
     if (loading || inflight > 0 || pollCtl) return;
     var q0 = queryVer, o0 = opVer;
@@ -396,7 +476,7 @@
     var me = pollCtl = new AbortController();
     var params = new URLSearchParams({
       q: state.q, status: state.status, region: state.region,
-      group: state.group, stance: state.stance, page: 1, upto: pages, facets: 1
+      group: state.group, stance: state.stance, owner: state.owner, page: 1, upto: pages, facets: 1
     });
     fetch(cfg.api.search + '?' + params.toString(), {
       signal: me.signal, credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' }
@@ -413,6 +493,7 @@
           return;
         }
         setStats(res.stats);
+        applyOwners(res.owners);
         applyFacets(res.facets);
         var partial = state.page > pages; // 5 sayfadan fazlası yüklü: sadece var olan kartları güncelle
         window.secimLive.reconcile(els.list, res.items, { build: card, sel: '.p-card', patchOnly: partial, carry: carryOpen, keep: function (n) { return n.__touched; } });
@@ -426,7 +507,7 @@
   }
 
   function updateFilterBadge() {
-    var n = ['region', 'group', 'stance'].filter(function (k) { return state[k] !== ''; }).length;
+    var n = ['region', 'group', 'stance', 'owner'].filter(function (k) { return state[k] !== ''; }).length;
     if (!els.filterBadge) return;
     els.filterBadge.hidden = n === 0;
     els.filterBadge.textContent = n;

@@ -56,6 +56,10 @@ if (is_post()) {
                             q('UPDATE users SET is_active = ? WHERE id = ?', [$newActive, $targetId]);
                             revoke_user_sessions($targetId); // kayıtlı cihazları da hemen düşer
                             audit('user_deactivate', $target['username']);
+                            // Takımındaki kişiler boşa çıkar (2 kişi sınırında yer tutmasın; aktif olunca geri gelmez)
+                            if ($n = team_clear_user($targetId)) {
+                                audit('team_clear', $target['username'], ['firma' => $n]);
+                            }
                             flash('success', 'Kullanıcı pasife alındı.');
                         }
                     } else {

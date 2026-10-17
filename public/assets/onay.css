@@ -89,6 +89,14 @@
 .p-transfer:active { transform: scale(.97); }
 .p-transfer:focus-visible { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
 .p-stance:focus-within { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
+/* Takım (kimin adamı): sahip rozetleri + al/çıkar düğmesi */
+.p-team { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.p-team-label { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.p-owner { min-height: 28px; padding: 4px 10px; }
+.p-owner.is-mine { background: var(--primary-soft); color: var(--primary-hover); border-color: transparent; }
+.p-owner-x { font-family: inherit; cursor: pointer; }
+.p-owner-x:focus-visible { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
+.p-team-btn { min-height: 44px; }
 
 .p-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .btn-geldi {

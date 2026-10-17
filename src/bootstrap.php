@@ -31,6 +31,7 @@ require __DIR__ . '/db.php';
 require __DIR__ . '/auth.php';
 require __DIR__ . '/audit.php';
 require __DIR__ . '/people.php';
+require __DIR__ . '/team.php';
 require __DIR__ . '/layout.php';
 
 if (PHP_SAPI !== 'cli') {

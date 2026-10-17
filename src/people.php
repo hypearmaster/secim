@@ -264,9 +264,10 @@ function find_group(array $user, int $personId): array
 
 /**
  * Bir firma grubunun kartı. Tek kayıtta person_view ile aynı alanlar; ek olarak
- * count / came_count / firms (şube unvanları) / regions. id = gruptaki ilk kaydın id'si.
+ * count / came_count / firms (şube unvanları) / regions / team. id = gruptaki ilk kaydın id'si.
+ * $owners: team_owners() sonucundan bu firmanın sahipleri (liste ekranı toplu verir); null ise burada okunur.
  */
-function group_view(array $members, array $user): array
+function group_view(array $members, array $user, ?array $owners = null): array
 {
     $views = array_map(fn($r) => person_view($r, $user), $members);
     $first = $views[0];
@@ -308,6 +309,9 @@ function group_view(array $members, array $user): array
         'can_unmark'       => (bool) array_filter($came, fn($v) => $v['can_unmark']),
         'stance'           => $first['stance'],
         'transfer'         => $first['transfer'],
+        'team'             => can('team', $user)
+            ? team_view($owners ?? (team_owners((int) $members[0]['event_id'], [$members[0]['firm_key']])[$members[0]['firm_key']] ?? []), $user)
+            : null,
     ];
 }
 
@@ -326,7 +330,7 @@ function facet_condition(string $column, mixed $value, array &$params): string
 
 /**
  * Kapsam + arama/filtre koşulu. Onay ekranı ve dışa aktarma AYNI kuralları kullanır.
- * @param array{q?:string,region?:string,group?:string,status?:string,stance?:string} $f  status: all|came|pending
+ * @param array{q?:string,region?:string,group?:string,status?:string,stance?:string,owner?:string} $f  status: all|came|pending; owner: kullanıcı id | NONE_VALUE
  * @return array{0:string,1:list<mixed>}
  */
 function people_where(array $user, array $f, ?int $eventId = null): array
@@ -347,6 +351,9 @@ function people_where(array $user, array $f, ?int $eventId = null): array
             $where .= ' AND p.stance = ?';
             $params[] = $f['stance'];
         }
+    }
+    if (can('team', $user)) {
+        $where .= team_condition($f['owner'] ?? '', $params);
     }
     $status = $f['status'] ?? 'all';
     if ($status === 'came') {
@@ -380,10 +387,11 @@ function search_people(array $user, array $f, int $limit = 50, int $offset = 0):
     foreach (q(PERSON_SELECT . " WHERE $scope AND p.firm_key IN ($in) ORDER BY p.full_name, p.id", [...$sp, ...$keys])->fetchAll() as $r) {
         $byKey[$r['firm_key']][] = $r;
     }
+    $owners = can('team', $user) ? team_owners((int) $byKey[array_key_first($byKey)][0]['event_id'], $keys) : [];
     $items = [];
     foreach ($keys as $k) {
         if (!empty($byKey[$k])) {
-            $items[] = group_view($byKey[$k], $user);
+            $items[] = group_view($byKey[$k], $user, $owners[$k] ?? []);
         }
     }
     return ['items' => $items, 'total' => $total];
@@ -463,11 +471,11 @@ function people_breakdown(array $user, string $column, ?int $eventId = null): ar
 /**
  * Onay ekranındaki filtre çiplerinin sayıları (arka plan yenilemesinde yerinde güncellenir).
  * app.php'deki ilk çizimle AYNI kaynaklar: people_breakdown + stance_breakdown (firma bazında).
- * @return array{region:array<string,int>, group:array<string,int>, stance:array<string,int>} değer => firma sayısı
+ * @return array{region:array<string,int>, group:array<string,int>, stance:array<string,int>, owner:array<string,int>} değer => firma sayısı
  */
 function facet_totals(array $user): array
 {
-    $out = ['region' => [], 'group' => [], 'stance' => []];
+    $out = ['region' => [], 'group' => [], 'stance' => [], 'owner' => []];
     if (can('view_all', $user) || ($user['region'] ?? '') === '') {
         foreach (people_breakdown($user, 'region') as $b) {
             $out['region'][$b['value']] = $b['total'];
@@ -482,6 +490,9 @@ function facet_totals(array $user): array
             $out['stance'][$key] = $sb[$key]['total'] ?? 0;
         }
         $out['stance'][NONE_VALUE] = $sb[NONE_VALUE]['total'] ?? 0;
+    }
+    foreach (team_breakdown($user) as $b) {
+        $out['owner'][$b['value']] = $b['total'];
     }
     return $out;
 }

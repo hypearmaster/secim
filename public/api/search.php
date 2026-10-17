@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/../../src/bootstrap.php';
 
-// GET ?q=&region=&group=&status=all|came|pending&stance=<anahtar|__none__>&page=1  (stance sadece yetkili)
+// GET ?q=&region=&group=&status=all|came|pending&stance=<anahtar|__none__>&owner=<kullanıcı id|__none__>&page=1  (stance/owner sadece yetkili)
 // Arka plan yenilemesi: &upto=N (1..5) ilk N sayfayı tek yanıtta verir, &facets=1 filtre çipi sayılarını ekler.
 $user = require_perm('mark');
 
@@ -13,6 +13,7 @@ $filters = [
     'region' => (string) ($_GET['region'] ?? ''),
     'group'  => (string) ($_GET['group'] ?? ''),
     'stance' => (string) ($_GET['stance'] ?? ''),
+    'owner'  => (string) ($_GET['owner'] ?? ''), // "Kimin adamı": kullanıcı id | __none__ (sadece team yetkisi)
     'status' => in_array($_GET['status'] ?? '', ['came', 'pending'], true) ? $_GET['status'] : 'all',
 ];
 
@@ -34,5 +35,8 @@ $out = [
 ];
 if (($_GET['facets'] ?? '') === '1') {
     $out['facets'] = facet_totals($user);
+    if (can('team', $user)) {
+        $out['owners'] = team_breakdown($user); // "Kimin adamı" çipleri: yeni sahip çıkınca istemci satırı yeniden kurar
+    }
 }
 json_response($out);

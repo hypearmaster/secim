@@ -31,6 +31,9 @@ const AUDIT_ACTIONS = [
     'gifts_import'       => 'Hediye listesi yüklendi',
     'gifts_clear'        => 'Hediye listesi silindi',
     'gift_add'           => 'Hediye kişi eklendi',
+    'team_add'           => 'Takıma alındı',
+    'team_remove'        => 'Takımdan çıkarıldı',
+    'team_clear'         => 'Pasif kullanıcının takımı boşaltıldı',
 ];
 
 /**

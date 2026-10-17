@@ -9,6 +9,7 @@ $regionLocked = !can('view_all', $user) && ($user['region'] ?? '') !== '';
 $canStance = can('stance', $user);
 $canTransfer = can('transfer', $user);
 $canAdd = can('add_person', $user);
+$canTeam = can('team', $user);
 
 $regions = ($event && !$regionLocked) ? people_breakdown($user, 'region') : [];
 $groups = $event ? people_breakdown($user, 'group_name') : [];
@@ -19,16 +20,21 @@ foreach (stance_options() as $value => [$label, $color]) {
     $stances[] = ['value' => $value, 'label' => $label, 'color' => $color, 'total' => $stanceCounts[$value]['total'] ?? 0];
 }
 
+// "Kimin adamı" çipleri: Benimkiler + takımı olan kullanıcılar + Sahipsiz (firma sayısıyla)
+$owners = ($event && $canTeam) ? team_breakdown($user) : [];
+
 // Transfer iki durumlu düğme: iki durumun etiketi/rengi (iyimser güncelleme için)
 $transferStates = ['off' => transfer_view(null), 'on' => transfer_view('transfer')];
 
 $config = [
     'api'       => ['search' => url('api/search.php'), 'mark' => url('api/mark.php'), 'stance' => url('api/stance.php'),
-                    'transfer' => url('api/transfer.php'), 'person' => url('api/person.php')],
+                    'transfer' => url('api/transfer.php'), 'person' => url('api/person.php'), 'team' => url('api/team.php')],
     'login'     => url('index.php'),
     'eventId'   => $event['id'] ?? null,
     'canStance' => $canStance,
     'canTransfer' => $canTransfer,
+    'canTeam'   => $canTeam,
+    'canTeamManage' => can('team_manage', $user),
     'transferStates' => $canTransfer ? $transferStates : null,
     'supporterStance' => $canStance ? (string) config('supporter_stance', 'bizimle') : null, // mavi zemin
     'stances'   => $stances,
@@ -83,6 +89,9 @@ render_header('Onay', 'app', ['onay.css']);
       <?php
       chip_row('region', 'İlçe', $regions);
       chip_row('group', 'Grup', $groups);
+      if ($canTeam) {
+          chip_row('owner', 'Kimin adamı', $owners);
+      }
       if ($canStance) {
           chip_row('stance', 'Bizimle mi?', [...$stances, ['value' => NONE_VALUE, 'label' => 'Belirsiz', 'total' => $stanceCounts[NONE_VALUE]['total'] ?? 0]]);
       }

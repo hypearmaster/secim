@@ -187,3 +187,16 @@ CREATE TABLE IF NOT EXISTS supporter_people (
   CONSTRAINT fk_sp_sup    FOREIGN KEY (supporter_id) REFERENCES supporters(id) ON DELETE CASCADE,
   CONSTRAINT fk_sp_person FOREIGN KEY (person_id)    REFERENCES people(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- Takım ("kimin adamı"): kullanıcı bir firmayı (onay kartı = firm_key) kendi takımına alır, ondan sorumludur.
+-- Aynı firma en fazla config('team_max', 2) kullanıcıda olabilir (sınır src/team.php'de, firma başına kilitle).
+CREATE TABLE IF NOT EXISTS team_members (
+  event_id    INT UNSIGNED NOT NULL,
+  firm_key    VARCHAR(255) NOT NULL,
+  user_id     INT UNSIGNED NOT NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (event_id, firm_key, user_id),
+  KEY ix_team_user (event_id, user_id),
+  CONSTRAINT fk_team_event FOREIGN KEY (event_id) REFERENCES events(id),
+  CONSTRAINT fk_team_user  FOREIGN KEY (user_id)  REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
