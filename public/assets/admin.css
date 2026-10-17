@@ -108,3 +108,31 @@
   .log-meta { grid-column: 1 / -1; grid-row: 3; padding-left: 64px; }
   .log-time { grid-row: 1; }
 }
+
+/* Takımlar (kimin adamı): kişi başı satır, dokununca gelmeyenleri açılır */
+.teams-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.teams-head h2 { margin-top: 4px; }
+.teams-note { font-size: .85rem; }
+.teams-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 16px 0; }
+.teams-sum > div { background: var(--surface-2); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; }
+.teams-sum strong { font-size: 1.5rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.teams-sum span { font-size: .8rem; color: var(--muted); }
+.teams-sum .is-warn strong { color: var(--warning); }
+.teams-list { display: grid; gap: 8px; }
+.team-row { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.team-row > summary { list-style: none; cursor: pointer; padding: 10px 12px; min-height: 44px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+@media (max-width: 639px) { .team-row > summary { grid-template-columns: 1fr; } }
+.team-row > summary::-webkit-details-marker { display: none; }
+.team-row > summary:focus-visible { outline: 3px solid var(--primary-soft); outline-offset: 1px; }
+.team-name { font-weight: 700; overflow-wrap: anywhere; }
+.team-name small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+.team-nums { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .9rem; }
+.team-nums .ok { color: var(--success); font-weight: 700; }
+.team-nums .wait { color: var(--warning); font-weight: 700; }
+.team-row .progress { grid-column: 1 / -1; }
+.team-row[open] > summary { border-bottom: 1px solid var(--border); }
+.team-wait { list-style: none; margin: 0; padding: 8px 12px 12px; display: grid; gap: 4px; }
+.team-wait li { display: flex; justify-content: space-between; gap: 10px; font-size: .9rem; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.team-wait li:last-child { border-bottom: 0; }
+.team-wait .r { color: var(--muted); white-space: nowrap; }
+.team-done { padding: 10px 12px; margin: 0; color: var(--success); font-weight: 600; }

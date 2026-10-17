@@ -14,7 +14,7 @@ function dashboard_row(string $label, int $total, int $came): array
 
 /**
  * @return array{event_id:int, stats:array{total:int,came:int,pending:int,rate:int}, region:list<array>, group:list<array>,
- *               stance:list<array>, logs:list<array>}
+ *               stance:list<array>, logs:list<array>, teams:array}  teams = team_overview()
  */
 function dashboard_data(array $user, int $eventId): array
 {
@@ -78,5 +78,6 @@ function dashboard_data(array $user, int $eventId): array
         'group'    => $rows('group_name'),
         'stance'   => $stance,
         'logs'     => $logs,
+        'teams'    => team_overview($user, $eventId),
     ];
 }

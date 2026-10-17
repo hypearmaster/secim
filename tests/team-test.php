@@ -117,6 +117,12 @@ mark_person($b, $f1k); // Kemer şubesi geldi → f1 kısmi: Gelmeyenler'de "1/2
 $pd = my_panel_data($c);
 check('Panelim: kısmi firma sadece gelmeyenlerde', $pd['stats']['came'] === 1 && count($pd['came']) === 1 && count($pd['pending']) === 1
     && $pd['pending'][0]['partial'] === '1/2' && !$pd['truncated'], json_encode($pd['pending']));
+$ov = team_overview($y, $event);
+$cu = array_values(array_filter($ov['users'], fn($u) => $u['id'] === $c['id']))[0] ?? null;
+check('Takımlar: özet (3 firma, 2 takımda, 1 sahipsiz, 1 gelen)', $ov['summary']['firms'] === 3 && $ov['summary']['owned'] === 2
+    && $ov['summary']['unowned'] === 1 && $ov['summary']['owned_came'] === 1 && $ov['summary']['owners'] === 1, json_encode($ov['summary']));
+check('Takımlar: C satırı 2 kişi / 1 geldi / gelmeyen = kısmi firma', $cu && $cu['total'] === 2 && $cu['came'] === 1
+    && count($cu['waiting']) === 1 && $cu['waiting'][0]['name'] === 'Ali Takım', json_encode($cu, JSON_UNESCAPED_UNICODE));
 check('Panelim: a (Merkez) takımı boş', my_panel_data($a)['stats']['total'] === 0);
 check('oy: onaycı görür (vote_view) ama basamaz (vote)', can('vote_view', $a) && !can('vote', $a));
 

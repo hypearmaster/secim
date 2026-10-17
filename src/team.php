@@ -270,3 +270,74 @@ function my_panel_data(array $user): array
         'truncated' => count($pending) < $total - $came || count($cameList) < $came,
     ];
 }
+
+/**
+ * Yönetim paneli "Takımlar" bölümü: her kullanıcının takımı (firma bazında) ve gelmeyen adamları.
+ * Kapsam = görenin kapsamı (yönetici/admin: tümü). Sadece aktif kullanıcılar.
+ * @return array{summary:array{firms:int,owned:int,unowned:int,full:int,owners:int,owned_came:int,max:int},
+ *               users:list<array{id:int,name:string,role:string,total:int,came:int,pending:int,rate:int,waiting:list<array>,more:int}>}
+ */
+function team_overview(array $user, int $eventId): array
+{
+    [$where, $params] = people_scope($user, 'p', $eventId);
+    $rate = fn(int $t, int $c): int => $t ? (int) round($c / $t * 100) : 0;
+    $join = 'JOIN team_members t ON t.event_id = p.event_id AND t.firm_key = p.firm_key
+             JOIN users u ON u.id = t.user_id AND u.is_active = 1';
+
+    // Firma başına: kaç aktif sahip, hepsi geldi mi
+    $firms = q("SELECT COUNT(*) AS firms, COALESCE(SUM(owners > 0), 0) AS owned, COALESCE(SUM(owners >= ?), 0) AS full,
+                       COALESCE(SUM(owners > 0 AND all_came = 1), 0) AS owned_came
+                FROM (
+                    SELECT p.firm_key, MIN(p.attended_at IS NOT NULL) AS all_came,
+                           (SELECT COUNT(*) FROM team_members t JOIN users u ON u.id = t.user_id AND u.is_active = 1
+                            WHERE t.event_id = MIN(p.event_id) AND t.firm_key = p.firm_key) AS owners
+                    FROM people p WHERE $where GROUP BY p.firm_key
+                ) f", [team_max(), ...$params])->fetch();
+
+    $users = [];
+    foreach (q("SELECT x.user_id, u.full_name, u.role, COUNT(*) AS total, COALESCE(SUM(x.all_came), 0) AS came
+                FROM (
+                    SELECT t.user_id, p.firm_key, MIN(p.attended_at IS NOT NULL) AS all_came
+                    FROM people p $join WHERE $where GROUP BY t.user_id, p.firm_key
+                ) x JOIN users u ON u.id = x.user_id
+                GROUP BY x.user_id, u.full_name, u.role
+                ORDER BY total DESC, u.full_name", $params)->fetchAll() as $r) {
+        $t = (int) $r['total'];
+        $c = (int) $r['came'];
+        $users[(int) $r['user_id']] = ['id' => (int) $r['user_id'], 'name' => $r['full_name'], 'role' => ROLES[$r['role']] ?? $r['role'],
+            'total' => $t, 'came' => $c, 'pending' => $t - $c, 'rate' => $rate($t, $c), 'waiting' => [], 'more' => 0];
+    }
+
+    // Her kullanıcının gelmeyen adamları (kişi başı en fazla 50; kalanı "+N")
+    $show = 50;
+    foreach (q("SELECT t.user_id, p.firm_key,
+                       MIN(COALESCE(NULLIF(p.authority, ''), p.full_name)) AS name,
+                       MIN(NULLIF(p.region, '')) AS region
+                FROM people p $join WHERE $where
+                GROUP BY t.user_id, p.firm_key
+                HAVING MIN(p.attended_at IS NOT NULL) = 0
+                ORDER BY name", $params)->fetchAll() as $w) {
+        $uid = (int) $w['user_id'];
+        if (!isset($users[$uid])) {
+            continue;
+        }
+        if (count($users[$uid]['waiting']) < $show) {
+            $users[$uid]['waiting'][] = ['name' => $w['name'], 'region' => $w['region']];
+        } else {
+            $users[$uid]['more']++;
+        }
+    }
+
+    return [
+        'summary' => [
+            'firms'      => (int) $firms['firms'],
+            'owned'      => (int) $firms['owned'],
+            'unowned'    => (int) $firms['firms'] - (int) $firms['owned'],
+            'full'       => (int) $firms['full'],
+            'owned_came' => (int) $firms['owned_came'],
+            'owners'     => count($users),
+            'max'        => team_max(),
+        ],
+        'users' => array_values($users),
+    ];
+}

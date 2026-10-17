@@ -61,6 +61,66 @@
 
   var builders = { region: barRow, group: barRow, stance: stanceRow, logs: logRow };
 
+  /* ---------- Takımlar (kimin adamı): kişi başı açılır satır ---------- */
+  var teamsBox = document.getElementById('teams');
+  var teamsSig = '';
+  function teamRow(u, open) {
+    var d = el('details', 'team-row');
+    d.setAttribute('data-uid', u.id);
+    if (open) d.open = true;
+    var s = el('summary');
+    var name = el('span', 'team-name', u.name);
+    name.appendChild(el('small', null, u.role));
+    s.appendChild(name);
+    var nums = el('span', 'team-nums');
+    nums.appendChild(el('span', null, u.total + ' kişi · '));
+    nums.appendChild(el('span', 'ok', u.came + ' geldi'));
+    nums.appendChild(el('span', null, ' · '));
+    nums.appendChild(el('span', 'wait', u.pending + ' bekliyor'));
+    nums.appendChild(el('span', null, ' · %' + u.rate));
+    s.appendChild(nums);
+    var prog = el('div', 'progress');
+    var fill = el('span');
+    fill.style.width = u.rate + '%';
+    prog.appendChild(fill);
+    s.appendChild(prog);
+    d.appendChild(s);
+    if (!u.waiting.length) {
+      d.appendChild(el('p', 'team-done', '✓ Takımın tamamı geldi'));
+    } else {
+      var ul = el('ul', 'team-wait');
+      ul.setAttribute('aria-label', u.name + ' — gelmeyenler');
+      u.waiting.forEach(function (w) {
+        var li = el('li');
+        li.appendChild(el('span', null, w.name));
+        li.appendChild(el('span', 'r', w.region || ''));
+        ul.appendChild(li);
+      });
+      if (u.more) ul.appendChild(el('li', 'r', '+' + u.more + ' kişi daha'));
+      d.appendChild(ul);
+    }
+    return d;
+  }
+  function paintTeams(t) {
+    if (!teamsBox || !t) return;
+    var sig = JSON.stringify(t);
+    if (sig === teamsSig) return; // değişiklik yok: açık satırlar ve kaydırma bozulmasın
+    teamsSig = sig;
+    Object.keys(t.summary).forEach(function (k) {
+      var n = teamsBox.querySelector('[data-team="' + k + '"]');
+      if (n) n.textContent = t.summary[k];
+    });
+    var list = document.getElementById('teams-list');
+    var open = {};
+    list.querySelectorAll('details[open]').forEach(function (d) { open[d.getAttribute('data-uid')] = true; });
+    var frag = document.createDocumentFragment();
+    t.users.forEach(function (u) { frag.appendChild(teamRow(u, open[u.id])); });
+    list.textContent = '';
+    list.appendChild(frag);
+    document.getElementById('teams-empty').hidden = t.users.length > 0;
+  }
+  if (teamsBox) paintTeams(JSON.parse(teamsBox.getAttribute('data-teams')));
+
   function fullReload() { window.secimNav ? window.secimNav.reload() : window.location.reload(); }
 
   function apply(res) {
@@ -85,6 +145,7 @@
       body.textContent = '';
       body.appendChild(frag);
     });
+    paintTeams(res.teams);
     if (rebuild) fullReload();
   }
 

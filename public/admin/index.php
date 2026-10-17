@@ -100,6 +100,21 @@ function dash_breakdown(string $key, string $title, string $first, array $rows):
         <div id="vote-share-bar" class="vote-share-bar" aria-hidden="true"></div>
         <div class="vote-summary-footer"><span class="muted" id="vote-updated">Son kontrol bekleniyor</span><span class="muted">Saniyelik takip · Sayım devam ediyor</span></div>
     </section>
+    <section class="card teams" id="teams" data-teams="<?= e(json_encode($d['teams'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?>">
+        <div class="teams-head">
+            <div><span class="stat-label">Kimin adamı</span><h2>Takımlar</h2></div>
+            <span class="muted teams-note">Bir kişi en fazla <span data-team="max"><?= e($d['teams']['summary']['max']) ?></span> takımda</span>
+        </div>
+        <div class="teams-sum">
+            <div><strong data-team="owners"><?= e($d['teams']['summary']['owners']) ?></strong><span>takım kuran</span></div>
+            <div><strong data-team="owned"><?= e($d['teams']['summary']['owned']) ?></strong><span>takımda firma</span></div>
+            <div><strong data-team="owned_came"><?= e($d['teams']['summary']['owned_came']) ?></strong><span>takımdan gelen</span></div>
+            <div><strong data-team="full"><?= e($d['teams']['summary']['full']) ?></strong><span>dolu (<?= e($d['teams']['summary']['max']) ?>/<?= e($d['teams']['summary']['max']) ?>)</span></div>
+            <div class="is-warn"><strong data-team="unowned"><?= e($d['teams']['summary']['unowned']) ?></strong><span>sahipsiz</span></div>
+        </div>
+        <div class="teams-list" id="teams-list"></div>
+        <p class="muted" id="teams-empty" hidden>Henüz kimse takım kurmadı. Onay ekranında kartlardaki “+ Takımıma al” ile eklenir.</p>
+    </section>
     <?php dash_breakdown('region', 'İlçe Kırılımı', 'İlçe', $d['region']); ?>
     <?php dash_breakdown('group', 'Grup Kırılımı', 'Grup', $d['group']); ?>
 
